@@ -24,9 +24,9 @@ try:
   if "DATABASE_URL" in st.secrets:
     DB_URI = st.secrets["DATABASE_URL"]
   else:
-    DB_URI = "postgresql+psycopg://neondb_owner:npg_3QSZOo9BbcNn@ep-nameless-queen-b4sgvhbn.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
+    DB_URI = "postgresql+psycopg2-binary://neondb_owner:npg_3QSZOo9BbcNn@ep-nameless-queen-b4sgvhbn.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
 except Exception:
-  DB_URI = "postgresql+psycopg://neondb_owner:npg_3QSZOo9BbcNn@ep-nameless-queen-b4sgvhbn.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
+  DB_URI = "postgresql+psycopg2-binary://neondb_owner:npg_3QSZOo9BbcNn@ep-nameless-queen-b4sgvhbn.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
 
 @st.cache_resource
