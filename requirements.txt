@@ -1,6 +1,6 @@
 streamlit
 pandas
 sqlalchemy
-psycopg2
+psycopg
 openpyxl
 plotly
