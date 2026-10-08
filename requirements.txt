@@ -1,6 +1,6 @@
 streamlit
 pandas
-psycopg2-binary
+pg8000
 sqlalchemy
 openpyxl
 plotly
