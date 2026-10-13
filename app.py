@@ -6,7 +6,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
 import plotly.express as px
-from sqlalchemy import create_engine, text
+from sqlalchemy import URL, create_engine, text
 import streamlit as st
 import streamlit.components.v1 as components
 import re
@@ -19,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Database Connection & Auto-Table Initialization ---
+# --- Dual-Database Connection & Auto-Table Initialization ---
 try:
   if "DATABASE_URL" in st.secrets:
     DB_URI = st.secrets["DATABASE_URL"]
@@ -28,14 +28,15 @@ try:
 except Exception:
   DB_URI = "postgresql+psycopg://neondb_owner:npg_p4rhxY6HwWCL@ep-aged-firefly-b5b01bzp-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
-# Local PostgreSQL Dual-Write Connection URL
-try:
-  if "LOCAL_DATABASE_URL" in st.secrets:
-    LOCAL_DB_URI = st.secrets["LOCAL_DATABASE_URL"]
-  else:
-    LOCAL_DB_URI = "postgresql+psycopg://postgres:Chocoluv%402026postgres@localhost:5432/chocoluv_db"
-except Exception:
-  LOCAL_DB_URI = "postgresql+psycopg://postgres:Chocoluv%402026postgres@localhost:5432/chocoluv_db"
+# Safe local database URI construction using URL.create to natively handle special characters (@)
+LOCAL_DB_URI = URL.create(
+    drivername="postgresql+psycopg",
+    username="postgres",
+    password="Chocoluv@2026",
+    host="localhost",
+    port=5432,
+    database="chocoluv_db",
+)
 
 
 @st.cache_resource
@@ -104,7 +105,7 @@ def get_db_engines():
     with engine_local.begin() as conn:
       conn.execute(text(init_sql))
   except Exception as e:
-    st.sidebar.error(f"Local DB Failed: {e}")
+    st.sidebar.error(f"Local DB Error: {e}")
     engine_local = None
 
   return engine_neon, engine_local
@@ -215,15 +216,16 @@ def parse_weight_to_grams(w_val):
   return 50.0
 
 
-# --- Database Operations (with Dual-Write capability) ---
+# --- Database Operations (Dual-Write & Dual-Read) ---
 def fetch_table(table_name):
+  active_engine = engine_local if engine_local else engine
   try:
     query = f"SELECT * FROM {table_name} ORDER BY date DESC, id DESC"
-    df = pd.read_sql(query, engine)
+    df = pd.read_sql(query, active_engine)
   except Exception:
     try:
       query_fallback = f'SELECT * FROM "{table_name}"'
-      df = pd.read_sql(query_fallback, engine)
+      df = pd.read_sql(query_fallback, active_engine)
     except Exception:
       df = pd.DataFrame()
 
@@ -249,11 +251,12 @@ def insert_dispatch(table_name, record):
     """)
   with engine.begin() as conn:
     conn.execute(insert_sql, record)
-  
-  # Explicit local write with visible error feedback
   if engine_local:
-    with engine_local.begin() as conn_loc:
-      conn_loc.execute(insert_sql, record)
+    try:
+      with engine_local.begin() as conn_loc:
+        conn_loc.execute(insert_sql, record)
+    except Exception as e:
+      st.error(f"Failed to write to local DB: {e}")
 
 
 def update_dispatch_record(table_name, record_id, record):
@@ -330,11 +333,12 @@ def hash_text(secret: str) -> str:
 
 
 def get_staff_account(username: str):
+  active_engine = engine_local if engine_local else engine
   sql = text(
       "SELECT username, password_hash FROM staff_users WHERE"
       " LOWER(username)=LOWER(:u) LIMIT 1"
   )
-  with engine.connect() as conn:
+  with active_engine.connect() as conn:
     res = conn.execute(sql, {"u": username.strip()}).fetchone()
     return res
 
@@ -354,13 +358,12 @@ def register_staff_account(username: str, secret: str):
       pass
 
 
-# --- Universal Theme Immunity: Fixes Dark, Light, & System Modes ---
+# --- Universal Theme Immunity ---
 st.markdown(
     """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Cinzel:wght@700&display=swap');
 
-/* Main Canvas Background */
 .stApp, [data-testid="stAppViewContainer"] {
     background-color: #140a06 !important;
     background-image: 
@@ -372,7 +375,6 @@ st.markdown(
     color: #ffffff !important;
 }
 
-/* SIDEBAR: Always Dark Chocolate with Pure White Text */
 section[data-testid="stSidebar"], 
 div[data-testid="stSidebarNav"],
 [data-testid="stSidebar"] > div:first-child {
@@ -393,7 +395,6 @@ section[data-testid="stSidebar"] button {
     font-weight: 700 !important;
 }
 
-/* Glass Panels */
 [data-testid="stForm"], 
 div[data-testid="stMetric"], 
 .stTabs [data-baseweb="tab-panel"] {
@@ -404,14 +405,6 @@ div[data-testid="stMetric"],
     border-radius: 16px !important;
     padding: 22px !important;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
-}
-
-div[data-testid="stMetric"] {
-    transition: transform 0.25s ease, box-shadow 0.25s ease !important;
-}
-div[data-testid="stMetric"]:hover {
-    transform: translateY(-3px) !important;
-    box-shadow: 0 14px 34px rgba(212, 139, 80, 0.3) !important;
 }
 
 h1, h2, h3, h4, 
@@ -490,20 +483,6 @@ input::placeholder {
     font-weight: 600 !important;
 }
 
-div[data-baseweb="input"] button {
-    background-color: #e2e2e2 !important;
-    color: #000000 !important;
-    -webkit-text-fill-color: #000000 !important;
-    border-radius: 6px !important;
-}
-
-div[data-testid="stRadio"] label p,
-div[data-testid="stRadio"] label span {
-    color: #ffffff !important;
-    -webkit-text-fill-color: #ffffff !important;
-    font-weight: 700 !important;
-}
-
 button[kind="primary"] {
     background: linear-gradient(135deg, #d48b50 0%, #873e23 100%) !important;
     border: 1px solid #f4a261 !important;
@@ -513,49 +492,18 @@ button[kind="primary"] {
     -webkit-text-fill-color: #ffffff !important;
     padding: 10px 22px !important;
     box-shadow: 0 4px 15px rgba(0,0,0,0.4) !important;
-    transition: transform 0.2s ease !important;
-}
-button[kind="primary"]:hover {
-    transform: translateY(-2px) !important;
-}
-
-[data-testid="stDownloadButton"] > button {
-    background-color: #ffffff !important;
-    border: 2px solid #d4a373 !important;
-    border-radius: 9px !important;
-    padding: 8px 16px !important;
-}
-[data-testid="stDownloadButton"] > button p,
-[data-testid="stDownloadButton"] > button span {
-    color: #2b170c !important;
-    -webkit-text-fill-color: #2b170c !important;
-    font-weight: 800 !important;
-}
-
-button[data-baseweb="tab"] p {
-    font-size: 1rem !important;
-    font-weight: 700 !important;
-    color: #e0a96d !important;
-    -webkit-text-fill-color: #e0a96d !important;
-}
-button[aria-selected="true"] {
-    border-bottom: 3.5px solid #f4a261 !important;
-}
-button[aria-selected="true"] p {
-    color: #ffffff !important;
-    -webkit-text-fill-color: #ffffff !important;
 }
 </style>
 """,
     unsafe_allow_html=True,
 )
+
+
 def check_password():
   if st.session_state.get("authenticated", False):
     return True
 
   st.markdown("### 🔒 Chocoluv Staff Portal")
-  st.caption("Sign in with your personal credentials or set up your account.")
-
   auth_mode = st.radio(
       "Select Action",
       ["Log In", "First Time? Set Up Your Password"],
@@ -565,14 +513,8 @@ def check_password():
   if auth_mode == "Log In":
     with st.form("login_form"):
       login_user = st.text_input("Your Name / Username")
-      login_pass = st.text_input(
-          "Password", type="password", help="Enter your personal password"
-      )
-      login_btn = st.form_submit_button(
-          "Log In", type="primary", use_container_width=True
-      )
-
-      if login_btn:
+      login_pass = st.text_input("Password", type="password")
+      if st.form_submit_button("Log In", type="primary", use_container_width=True):
         if not login_user.strip() or not login_pass.strip():
           st.error("Please enter both your name and password.")
         else:
@@ -586,56 +528,33 @@ def check_password():
             else:
               st.error("Incorrect username or password.")
           except Exception:
-            st.error(
-                "Database is waking up. Please wait 5 seconds and click Log In"
-                " again."
-            )
-
+            st.error("Database connection error. Please try again.")
   else:
     with st.form("register_form"):
-      new_user = st.text_input(
-          "Your Name (e.g. Angela, Jon)",
-          help="Enter your name as you want it recorded on sales logs",
-      )
-      new_pass = st.text_input(
-          "Choose a Simple Password",
-          type="password",
-          help="Pick an easy-to-remember word or phrase",
-      )
+      new_user = st.text_input("Your Name (e.g. Angela)")
+      new_pass = st.text_input("Choose a Password", type="password")
       confirm_pass = st.text_input("Confirm Password", type="password")
-      register_btn = st.form_submit_button(
-          "Save & Register My Account", type="primary", use_container_width=True
-      )
-
-      if register_btn:
+      if st.form_submit_button("Save & Register My Account", type="primary", use_container_width=True):
         clean_user = new_user.strip().title()
         if not clean_user or not new_pass.strip():
           st.error("Please fill in both your name and password.")
         elif new_pass != confirm_pass:
-          st.error("Passwords do not match. Please retype them.")
+          st.error("Passwords do not match.")
         else:
           try:
             if get_staff_account(clean_user):
-              st.error(
-                  f"An account for '{clean_user}' already exists! Please switch"
-                  " to the 'Log In' tab."
-              )
+              st.error("An account for this name already exists!")
             else:
               register_staff_account(clean_user, new_pass)
-              st.success("Account created successfully! Logging you in...")
+              st.success("Account created successfully!")
               st.session_state["authenticated"] = True
               st.session_state["staff_user"] = clean_user
               st.rerun()
           except Exception:
-            st.error(
-                "Database is waking up. Please wait 5 seconds and click Register"
-                " again."
-            )
-
+            st.error("Database connection error. Please try again.")
   return False
 
 
-# --- Header Display ---
 st.markdown(
     """
 <div>
@@ -658,7 +577,6 @@ with st.sidebar:
     st.rerun()
 
 
-# --- Merged-Cell Excel Export Generator ---
 def to_excel_bytes(df):
   if df.empty:
     output = io.BytesIO()
@@ -682,17 +600,8 @@ def to_excel_bytes(df):
   ws.title = "Sales Log"
   ws.views.sheetView[0].showGridLines = True
 
-  header_fill = PatternFill(
-      start_color="2E7D32", end_color="2E7D32", fill_type="solid"
-  )
+  header_fill = PatternFill(start_color="2E7D32", end_color="2E7D32", fill_type="solid")
   header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-  order_fill = PatternFill(
-      start_color="FDF9F5", end_color="FDF9F5", fill_type="solid"
-  )
-  usd_fill = PatternFill(
-      start_color="F2FBF2", end_color="F2FBF2", fill_type="solid"
-  )
-
   thin_border = Border(
       left=Side(style="thin", color="DDDDDD"),
       right=Side(style="thin", color="DDDDDD"),
@@ -701,20 +610,10 @@ def to_excel_bytes(df):
   )
 
   headers = [
-      "ID",
-      "DATE",
-      "CLIENT",
-      "BATCH #",
-      "PRODUCT",
-      "WEIGHT (g)",
-      "QTY",
-      "UNIT COST GH₵",
-      "TOTAL AMOUNT GH₵",
-      "TOTAL WEIGHT (g)",
-      "TOTAL WEIGHT IN M/T",
-      "TOTAL AMOUNT OF ORDER (GH₵)",
-      "EXCHANGE RATE",
-      "TOTAL AMOUNT IN USD ($)",
+      "ID", "DATE", "CLIENT", "BATCH #", "PRODUCT", "WEIGHT (g)", "QTY",
+      "UNIT COST GH₵", "TOTAL AMOUNT GH₵", "TOTAL WEIGHT (g)",
+      "TOTAL WEIGHT IN M/T", "TOTAL AMOUNT OF ORDER (GH₵)",
+      "EXCHANGE RATE", "TOTAL AMOUNT IN USD ($)"
   ]
 
   ws.row_dimensions[1].height = 28
@@ -722,9 +621,7 @@ def to_excel_bytes(df):
     cell = ws.cell(row=1, column=col_idx, value=header)
     cell.fill = header_fill
     cell.font = header_font
-    cell.alignment = Alignment(
-        horizontal="center", vertical="center", wrap_text=True
-    )
+    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     cell.border = thin_border
 
   current_row = 2
@@ -738,138 +635,36 @@ def to_excel_bytes(df):
     order_total_weight_g = group["item_total_weight_g"].sum()
     order_total_weight_mt = order_total_weight_g / 1_000_000.0
     order_total_ghc = group["item_total_amount_ghc"].sum()
-    order_rate = (
-        group["exchange_rate"].iloc[0]
-        if "exchange_rate" in group.columns
-        else 11.20
-    )
-    order_total_usd = (
-        round(order_total_ghc / order_rate, 2) if order_rate > 0 else 0.00
-    )
+    order_rate = group["exchange_rate"].iloc[0] if "exchange_rate" in group.columns else 11.20
+    order_total_usd = round(order_total_ghc / order_rate, 2) if order_rate > 0 else 0.00
 
     for idx, (_, row) in enumerate(group.iterrows()):
       r = current_row
       ws.row_dimensions[r].height = 22
+      ws.cell(row=r, column=1, value=f"#{row['id']}").alignment = Alignment(horizontal="center", vertical="center")
+      ws.cell(row=r, column=4, value=str(row["batch_number"]) if pd.notna(row["batch_number"]) else "-").alignment = Alignment(horizontal="center", vertical="center")
+      ws.cell(row=r, column=5, value=str(row["product_name"])).alignment = Alignment(horizontal="left", vertical="center")
 
-      ws.cell(row=r, column=1, value=f"#{row['id']}").alignment = Alignment(
-          horizontal="center", vertical="center"
-      )
-      ws.cell(
-          row=r,
-          column=4,
-          value=(
-              str(row["batch_number"])
-              if pd.notna(row["batch_number"])
-              else "-"
-          ),
-      ).alignment = Alignment(horizontal="center", vertical="center")
-      ws.cell(row=r, column=5, value=str(row["product_name"])).alignment = (
-          Alignment(horizontal="left", vertical="center")
-      )
-
-      c_w = ws.cell(row=r, column=6, value=float(row["weight_g"]))
-      c_w.number_format = "#,##0.0"
-      c_w.alignment = Alignment(horizontal="right", vertical="center")
-
-      c_q = ws.cell(row=r, column=7, value=int(row["quantity"]))
-      c_q.number_format = "#,##0"
-      c_q.alignment = Alignment(horizontal="center", vertical="center")
-
-      c_u = ws.cell(row=r, column=8, value=float(row["unit_cost"]))
-      c_u.number_format = "#,##0.00"
-      c_u.alignment = Alignment(horizontal="right", vertical="center")
-
-      c_tot = ws.cell(
-          row=r, column=9, value=float(row["item_total_amount_ghc"])
-      )
-      c_tot.number_format = "#,##0.00"
-      c_tot.alignment = Alignment(horizontal="right", vertical="center")
-      c_tot.font = Font(name="Calibri", bold=True)
+      ws.cell(row=r, column=6, value=float(row["weight_g"])).number_format = "#,##0.0"
+      ws.cell(row=r, column=7, value=int(row["quantity"])).number_format = "#,##0"
+      ws.cell(row=r, column=8, value=float(row["unit_cost"])).number_format = "#,##0.00"
+      ws.cell(row=r, column=9, value=float(row["item_total_amount_ghc"])).number_format = "#,##0.00"
 
       for c_idx in range(1, 15):
         ws.cell(row=r, column=c_idx).border = thin_border
-
       current_row += 1
 
-    c_date = ws.cell(row=start_row, column=2, value=str(d_val))
-    c_date.alignment = Alignment(horizontal="center", vertical="center")
-
-    c_client = ws.cell(row=start_row, column=3, value=str(client))
-    c_client.alignment = Alignment(horizontal="center", vertical="center")
-    c_client.font = Font(name="Calibri", bold=True, color="6B3310")
-
-    c_ow = ws.cell(row=start_row, column=10, value=float(order_total_weight_g))
-    c_ow.number_format = "#,##0.00"
-    c_ow.alignment = Alignment(horizontal="right", vertical="center")
-    c_ow.font = Font(name="Calibri", bold=True)
-
-    c_omt = ws.cell(
-        row=start_row, column=11, value=float(order_total_weight_mt)
-    )
-    c_omt.number_format = "#,##0.000000"
-    c_omt.alignment = Alignment(horizontal="right", vertical="center")
-    c_omt.font = Font(name="Calibri", bold=True)
-
-    c_ogh = ws.cell(row=start_row, column=12, value=float(order_total_ghc))
-    c_ogh.number_format = '"GH₵ "#,##0.00'
-    c_ogh.alignment = Alignment(horizontal="right", vertical="center")
-    c_ogh.font = Font(name="Calibri", bold=True, color="B25E24")
-
-    c_rate = ws.cell(row=start_row, column=13, value=float(order_rate))
-    c_rate.number_format = "0.0000"
-    c_rate.alignment = Alignment(horizontal="center", vertical="center")
-
-    c_usd = ws.cell(row=start_row, column=14, value=float(order_total_usd))
-    c_usd.number_format = '"$"#,##0.00'
-    c_usd.alignment = Alignment(horizontal="right", vertical="center")
-    c_usd.font = Font(name="Calibri", bold=True, color="1B5E20")
+    ws.cell(row=start_row, column=2, value=str(d_val)).alignment = Alignment(horizontal="center", vertical="center")
+    ws.cell(row=start_row, column=3, value=str(client)).alignment = Alignment(horizontal="center", vertical="center")
+    ws.cell(row=start_row, column=10, value=float(order_total_weight_g)).number_format = "#,##0.00"
+    ws.cell(row=start_row, column=11, value=float(order_total_weight_mt)).number_format = "#,##0.000000"
+    ws.cell(row=start_row, column=12, value=float(order_total_ghc)).number_format = '"GH₵ "#,##0.00'
+    ws.cell(row=start_row, column=13, value=float(order_rate)).number_format = "0.0000"
+    ws.cell(row=start_row, column=14, value=float(order_total_usd)).number_format = '"$"#,##0.00'
 
     if num_rows > 1:
-      ws.merge_cells(
-          start_row=start_row, start_column=2, end_row=end_row, end_column=2
-      )
-      ws.merge_cells(
-          start_row=start_row, start_column=3, end_row=end_row, end_column=3
-      )
-      ws.merge_cells(
-          start_row=start_row, start_column=10, end_row=end_row, end_column=10
-      )
-      ws.merge_cells(
-          start_row=start_row, start_column=11, end_row=end_row, end_column=11
-      )
-      ws.merge_cells(
-          start_row=start_row, start_column=12, end_row=end_row, end_column=12
-      )
-      ws.merge_cells(
-          start_row=start_row, start_column=13, end_row=end_row, end_column=13
-      )
-      ws.merge_cells(
-          start_row=start_row, start_column=14, end_row=end_row, end_column=14
-      )
-
-    for r_fill in range(start_row, end_row + 1):
-      for c_fill in [10, 11, 12]:
-        ws.cell(row=r_fill, column=c_fill).fill = order_fill
-      ws.cell(row=r_fill, column=14).fill = usd_fill
-
-  col_widths = {
-      1: 8,
-      2: 13,
-      3: 24,
-      4: 16,
-      5: 32,
-      6: 13,
-      7: 8,
-      8: 15,
-      9: 18,
-      10: 18,
-      11: 20,
-      12: 24,
-      13: 15,
-      14: 20,
-  }
-  for col_idx, width in col_widths.items():
-    ws.column_dimensions[get_column_letter(col_idx)].width = width
+      for col in [2, 3, 10, 11, 12, 13, 14]:
+        ws.merge_cells(start_row=start_row, start_column=col, end_row=end_row, end_column=col)
 
   output = io.BytesIO()
   wb.save(output)
@@ -947,54 +742,30 @@ def display_merged_excel_table(df):
     order_total_weight_g = group["item_total_weight_g"].sum()
     order_total_weight_mt = order_total_weight_g / 1_000_000.0
     order_total_ghc = group["item_total_amount_ghc"].sum()
-    order_rate = (
-        group["exchange_rate"].iloc[0]
-        if "exchange_rate" in group.columns
-        else 11.20
-    )
-    order_total_usd = (
-        round(order_total_ghc / order_rate, 2) if order_rate > 0 else 0.00
-    )
+    order_rate = group["exchange_rate"].iloc[0] if "exchange_rate" in group.columns else 11.20
+    order_total_usd = round(order_total_ghc / order_rate, 2) if order_rate > 0 else 0.00
 
     for idx, (_, row) in enumerate(group.iterrows()):
       html_parts.append("<tr>")
       html_parts.append(f"<td class='id-cell'>#{row['id']}</td>")
       if idx == 0:
-        html_parts.append(
-            f"<td class='date-cell' rowspan='{num_rows}'>{d_val}</td>"
-        )
-        html_parts.append(
-            f"<td class='client-cell' rowspan='{num_rows}'>{client}</td>"
-        )
+        html_parts.append(f"<td class='date-cell' rowspan='{num_rows}'>{d_val}</td>")
+        html_parts.append(f"<td class='client-cell' rowspan='{num_rows}'>{client}</td>")
 
-      b_val = (
-          str(row["batch_number"]) if pd.notna(row["batch_number"]) else "-"
-      )
+      b_val = str(row["batch_number"]) if pd.notna(row["batch_number"]) else "-"
       html_parts.append(f"<td class='batch-cell'>{b_val}</td>")
       html_parts.append(f"<td class='prod-cell'>{row['product_name']}</td>")
       html_parts.append(f"<td>{row['weight_g']:,.1f}</td>")
       html_parts.append(f"<td class='qty-cell'>{row['quantity']}</td>")
       html_parts.append(f"<td>{row['unit_cost']:,.2f}</td>")
-      html_parts.append(
-          f"<td style='font-weight:700;'>{row['item_total_amount_ghc']:,.2f}</td>"
-      )
+      html_parts.append(f"<td style='font-weight:700;'>{row['item_total_amount_ghc']:,.2f}</td>")
 
       if idx == 0:
-        html_parts.append(
-            f"<td class='order-sum' rowspan='{num_rows}'>{order_total_weight_g:,.2f}</td>"
-        )
-        html_parts.append(
-            f"<td class='order-sum' rowspan='{num_rows}'>{order_total_weight_mt:,.6f}</td>"
-        )
-        html_parts.append(
-            f"<td class='order-sum' rowspan='{num_rows}' style='color:#b25e24;'>GH₵ {order_total_ghc:,.2f}</td>"
-        )
-        html_parts.append(
-            f"<td rowspan='{num_rows}' style='font-weight:700;'>{order_rate:.4f}</td>"
-        )
-        html_parts.append(
-            f"<td class='order-usd' rowspan='{num_rows}'>${order_total_usd:,.2f}</td>"
-        )
+        html_parts.append(f"<td class='order-sum' rowspan='{num_rows}'>{order_total_weight_g:,.2f}</td>")
+        html_parts.append(f"<td class='order-sum' rowspan='{num_rows}'>{order_total_weight_mt:,.6f}</td>")
+        html_parts.append(f"<td class='order-sum' rowspan='{num_rows}' style='color:#b25e24;'>GH₵ {order_total_ghc:,.2f}</td>")
+        html_parts.append(f"<td rowspan='{num_rows}' style='font-weight:700;'>{order_rate:.4f}</td>")
+        html_parts.append(f"<td class='order-usd' rowspan='{num_rows}'>${order_total_usd:,.2f}</td>")
 
       html_parts.append("</tr>")
 
@@ -1013,26 +784,16 @@ def prepare_export_df(df):
     export_df["batch_number"] = "-"
 
   export_df["batch_number"] = export_df["batch_number"].fillna("-")
-  export_df["item_total_weight_g"] = (
-      export_df["quantity"] * export_df["weight_g"]
-  )
-  export_df["item_total_amount_ghc"] = (
-      export_df["quantity"] * export_df["unit_cost"]
-  )
+  export_df["item_total_weight_g"] = export_df["quantity"] * export_df["weight_g"]
+  export_df["item_total_amount_ghc"] = export_df["quantity"] * export_df["unit_cost"]
 
-  order_weights = export_df.groupby(["date", "customer_name"])[
-      "item_total_weight_g"
-  ].transform("sum")
-  order_totals_ghc = export_df.groupby(["date", "customer_name"])[
-      "item_total_amount_ghc"
-  ].transform("sum")
+  order_weights = export_df.groupby(["date", "customer_name"])["item_total_weight_g"].transform("sum")
+  order_totals_ghc = export_df.groupby(["date", "customer_name"])["item_total_amount_ghc"].transform("sum")
 
   export_df["TOTAL WEIGHT (g)"] = order_weights
   export_df["TOTAL WEIGHT IN M/T"] = (order_weights / 1_000_000.0).round(6)
   export_df["TOTAL AMOUNT OF ORDER (GH₵)"] = order_totals_ghc
-  export_df["TOTAL AMOUNT IN USD ($)"] = (
-      order_totals_ghc / export_df["exchange_rate"]
-  ).round(2)
+  export_df["TOTAL AMOUNT IN USD ($)"] = (order_totals_ghc / export_df["exchange_rate"]).round(2)
 
   rename_map = {
       "id": "RECORD ID",
@@ -1051,9 +812,7 @@ def prepare_export_df(df):
 
 
 def render_table_edit_delete_bar(table_name, key_prefix):
-  with st.expander(
-      "✏ Quick Edit / Delete a Record in this Table", expanded=False
-  ):
+  with st.expander("✏ Quick Edit / Delete a Record in this Table", expanded=False):
     current_df = fetch_table(table_name)
     if current_df.empty:
       st.info("No records in this table to edit or delete.")
@@ -1063,10 +822,7 @@ def render_table_edit_delete_bar(table_name, key_prefix):
       current_df["batch_number"] = ""
 
     current_df["display_label"] = current_df.apply(
-        lambda r: (
-            f"ID #{r['id']} | {r['date']} | {r['customer_name']} | Batch:"
-            f" {r['batch_number']} | {r['product_name']} (Qty: {r['quantity']})"
-        ),
+        lambda r: f"ID #{r['id']} | {r['date']} | {r['customer_name']} | Batch: {r['batch_number']} | {r['product_name']} (Qty: {r['quantity']})",
         axis=1,
     )
 
@@ -1075,89 +831,39 @@ def render_table_edit_delete_bar(table_name, key_prefix):
         current_df["display_label"].tolist(),
         key=f"{key_prefix}_sel",
     )
-    selected_row = current_df[
-        current_df["display_label"] == selected_label
-    ].iloc[0]
+    selected_row = current_df[current_df["display_label"] == selected_label].iloc[0]
     rec_id = int(selected_row["id"])
 
     with st.form(f"{key_prefix}_edit_form"):
       col1, col2, col3 = st.columns([2, 2, 2])
       with col1:
-        e_date = st.date_input(
-            "Date",
-            value=pd.to_datetime(selected_row["date"]).date(),
-            key=f"{key_prefix}_d",
-        )
+        e_date = st.date_input("Date", value=pd.to_datetime(selected_row["date"]).date(), key=f"{key_prefix}_d")
       with col2:
-        e_cust = st.text_input(
-            "Customer Name",
-            value=selected_row["customer_name"],
-            key=f"{key_prefix}_c",
-        )
+        e_cust = st.text_input("Customer Name", value=selected_row["customer_name"], key=f"{key_prefix}_c")
       with col3:
-        curr_batch = (
-            selected_row["batch_number"]
-            if pd.notna(selected_row["batch_number"])
-            else ""
-        )
-        e_batch = st.text_input(
-            "Batch Number", value=curr_batch, key=f"{key_prefix}_b"
-        )
+        curr_batch = selected_row["batch_number"] if pd.notna(selected_row["batch_number"]) else ""
+        e_batch = st.text_input("Batch Number", value=curr_batch, key=f"{key_prefix}_b")
 
       col4, col5, col6 = st.columns([3, 1, 2])
       with col4:
-        prod_idx = (
-            PRODUCT_CATALOG.index(selected_row["product_name"])
-            if selected_row["product_name"] in PRODUCT_CATALOG
-            else 0
-        )
-        e_prod = st.selectbox(
-            "Product", PRODUCT_CATALOG, index=prod_idx, key=f"{key_prefix}_p"
-        )
+        prod_idx = PRODUCT_CATALOG.index(selected_row["product_name"]) if selected_row["product_name"] in PRODUCT_CATALOG else 0
+        e_prod = st.selectbox("Product", PRODUCT_CATALOG, index=prod_idx, key=f"{key_prefix}_p")
       with col5:
-        e_weight = st.number_input(
-            "Weight (g)",
-            min_value=0.0,
-            step=1.0,
-            value=float(selected_row["weight_g"]),
-            format="%.2f",
-            key=f"{key_prefix}_w",
-        )
+        e_weight = st.number_input("Weight (g)", min_value=0.0, step=1.0, value=float(selected_row["weight_g"]), format="%.2f", key=f"{key_prefix}_w")
       with col6:
-        e_staff = st.text_input(
-            "Entered By",
-            value=selected_row["entered_by"],
-            key=f"{key_prefix}_s",
-        )
+        e_staff = st.text_input("Entered By", value=selected_row["entered_by"], key=f"{key_prefix}_s")
 
       col7, col8 = st.columns(2)
       with col7:
-        e_qty = st.number_input(
-            "Quantity",
-            min_value=1,
-            step=1,
-            value=int(selected_row["quantity"]),
-            key=f"{key_prefix}_q",
-        )
+        e_qty = st.number_input("Quantity", min_value=1, step=1, value=int(selected_row["quantity"]), key=f"{key_prefix}_q")
       with col8:
-        e_cost = st.number_input(
-            "Unit Cost (GH₵)",
-            min_value=0.0,
-            step=0.5,
-            value=float(selected_row["unit_cost"]),
-            format="%.2f",
-            key=f"{key_prefix}_u",
-        )
+        e_cost = st.number_input("Unit Cost (GH₵)", min_value=0.0, step=0.5, value=float(selected_row["unit_cost"]), format="%.2f", key=f"{key_prefix}_u")
 
       btn_save, btn_del = st.columns([4, 1])
       with btn_save:
-        save_clicked = st.form_submit_button(
-            "💾 Save Changes", type="primary", use_container_width=True
-        )
+        save_clicked = st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True)
       with btn_del:
-        del_clicked = st.form_submit_button(
-            "🗑 Delete Record", type="secondary", use_container_width=True
-        )
+        del_clicked = st.form_submit_button("🗑 Delete Record", type="secondary", use_container_width=True)
 
       if save_clicked:
         payload = {
@@ -1195,21 +901,15 @@ with tab_entry:
   st.subheader("Sales Details (Packaging / Entry)")
   c1, c2, c3 = st.columns([2, 2, 2])
   with c1:
-    destination = st.selectbox(
-        "Target Section", ["Local Sales", "Exports", "Protocol"]
-    )
+    destination = st.selectbox("Target Section", ["Local Sales", "Exports", "Protocol"])
   with c2:
     entry_date = st.date_input("Date", value=date.today())
   with c3:
-    entered_by = st.text_input(
-        "Entered By (Staff Name)", value=st.session_state.get("staff_user", "")
-    )
+    entered_by = st.text_input("Entered By (Staff Name)", value=st.session_state.get("staff_user", ""))
 
   c4, c5, c_batch = st.columns([3, 3, 2])
   with c4:
-    customer_name = st.text_input(
-        "Customer Name", placeholder="e.g. Tomreik Hotel"
-    )
+    customer_name = st.text_input("Customer Name", placeholder="e.g. Tomreik Hotel")
   with c5:
     product_name = st.selectbox("Product Name", PRODUCT_CATALOG)
   with c_batch:
@@ -1222,25 +922,17 @@ with tab_entry:
     if not match_row.empty:
       default_weight = parse_weight_to_grams(match_row["Weight"].values[0])
       if destination == "Exports":
-        default_cost = float(
-            match_row["Export Price (GHS)"].fillna(50.0).values[0]
-        )
+        default_cost = float(match_row["Export Price (GHS)"].fillna(50.0).values[0])
       else:
-        default_cost = float(
-            match_row["Local Price (GHS)"].fillna(25.0).values[0]
-        )
+        default_cost = float(match_row["Local Price (GHS)"].fillna(25.0).values[0])
 
   c6, c7, c8 = st.columns(3)
   with c6:
-    unit_weight_g = st.number_input(
-        "Weight per Unit (g)", value=float(default_weight), format="%.2f"
-    )
+    unit_weight_g = st.number_input("Weight per Unit (g)", value=float(default_weight), format="%.2f")
   with c7:
     quantity = st.number_input("Quantity", min_value=1, value=1)
   with c8:
-    unit_cost = st.number_input(
-        "Unit Cost (GH₵)", value=float(default_cost), format="%.2f"
-    )
+    unit_cost = st.number_input("Unit Cost (GH₵)", value=float(default_cost), format="%.2f")
 
   calc_total_g = quantity * unit_weight_g
   calc_total_mt = calc_total_g / 1_000_000.0
@@ -1265,9 +957,7 @@ with tab_entry:
       payload = {
           "date": entry_date,
           "customer_name": customer_name.strip().upper(),
-          "batch_number": (
-              batch_number.strip().upper() if batch_number.strip() else "N/A"
-          ),
+          "batch_number": batch_number.strip().upper() if batch_number.strip() else "N/A",
           "product_name": product_name,
           "weight_g": float(unit_weight_g),
           "quantity": int(quantity),
@@ -1276,9 +966,7 @@ with tab_entry:
       }
       try:
         insert_dispatch(TABLE_MAP[destination], payload)
-        st.success(
-            f"Sale for '{customer_name}' recorded to {destination} successfully!"
-        )
+        st.success(f"Sale for '{customer_name}' recorded to both Neon and Local DB successfully!")
       except Exception as e:
         st.error(f"Database error: {e}")
 
@@ -1320,10 +1008,7 @@ def render_sales_table_view(table_key, title):
       q = search_query.strip().lower()
       filtered_df = filtered_df[
           filtered_df["customer_name"].str.lower().str.contains(q, na=False)
-          | filtered_df["batch_number"]
-          .astype(str)
-          .str.lower()
-          .str.contains(q, na=False)
+          | filtered_df["batch_number"].astype(str).str.lower().str.contains(q, na=False)
           | filtered_df["product_name"].str.lower().str.contains(q, na=False)
           | filtered_df["entered_by"].str.lower().str.contains(q, na=False)
       ]
@@ -1367,9 +1052,7 @@ def render_sales_table_view(table_key, title):
             label="📊 Download Excel (.xlsx)",
             data=excel_data,
             file_name=f"{table_key}_{date.today()}.xlsx",
-            mime=(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
       except Exception as ex:
@@ -1390,10 +1073,7 @@ with tab_protocol:
 
 with tab_qa:
   st.subheader("🔍 QA Desk")
-  st.caption(
-      "Apply monthly exchange rates or edit rates box-by-box to calculate USD"
-      " valuations automatically."
-  )
+  st.caption("Apply monthly exchange rates or edit rates box-by-box to calculate USD valuations automatically.")
 
   q_sec, q_mode = st.columns([3, 3])
   with q_sec:
@@ -1405,10 +1085,7 @@ with tab_qa:
   with q_mode:
     qa_mode = st.radio(
         "Update Method",
-        [
-            "Apply by Entire Month (Bulk)",
-            "Edit Box-by-Box (Table Editor)",
-        ],
+        ["Apply by Entire Month (Bulk)", "Edit Box-by-Box (Table Editor)"],
         horizontal=True,
     )
 
@@ -1430,30 +1107,16 @@ with tab_qa:
             "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December",
         ]
-        qa_month_name = st.selectbox(
-            "Month", month_names, index=date.today().month - 1
-        )
+        qa_month_name = st.selectbox("Month", month_names, index=date.today().month - 1)
         qa_month = month_names.index(qa_month_name) + 1
       with b_c3:
-        qa_bulk_rate = st.number_input(
-            "Dollar Rate (GH₵/$)",
-            min_value=0.01,
-            step=0.05,
-            value=11.20,
-            format="%.4f",
-        )
+        qa_bulk_rate = st.number_input("Dollar Rate (GH₵/$)", min_value=0.01, step=0.05, value=11.20, format="%.4f")
       with b_c4:
         st.write("")
         st.write("")
-        if st.button(
-            f"Apply {qa_bulk_rate:.2f} to All {qa_month_name} {qa_year} Records",
-            type="primary",
-        ):
+        if st.button(f"Apply {qa_bulk_rate:.2f} to All {qa_month_name} {qa_year} Records", type="primary"):
           apply_monthly_rate(qa_table_name, qa_year, qa_month, qa_bulk_rate)
-          st.success(
-              f"Applied exchange rate of {qa_bulk_rate:.4f} to all"
-              f" {qa_month_name} {qa_year} entries!"
-          )
+          st.success(f"Applied exchange rate of {qa_bulk_rate:.4f} to all {qa_month_name} {qa_year} entries!")
           st.rerun()
 
     else:
@@ -1485,9 +1148,7 @@ with tab_qa:
         st.success("All box-by-box rate changes saved to database!")
         st.rerun()
 
-    render_table_edit_delete_bar(
-        qa_table_name, key_prefix=f"qa_direct_{qa_table_name}"
-    )
+    render_table_edit_delete_bar(qa_table_name, key_prefix=f"qa_direct_{qa_table_name}")
 
     st.markdown("---")
     st.markdown("### 📋 Sales Data")
@@ -1524,9 +1185,7 @@ with tab_qa:
             label="📊 Export QA Sales Data Excel (.xlsx)",
             data=to_excel_bytes(raw_qa_df),
             file_name=f"QA_Sales_Data_{qa_table_name}_{date.today()}.xlsx",
-            mime=(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
       except Exception as ex:
@@ -1551,50 +1210,24 @@ with tab_analytics:
       if "exchange_rate" not in all_df.columns:
         all_df["exchange_rate"] = 1.0000
 
-      all_df["total_weight_mt"] = pd.to_numeric(
-          all_df["total_weight_mt"], errors="coerce"
-      ).fillna(0.0)
-      all_df["total_amount"] = pd.to_numeric(
-          all_df["total_amount"], errors="coerce"
-      ).fillna(0.0)
+      all_df["total_weight_mt"] = pd.to_numeric(all_df["total_weight_mt"], errors="coerce").fillna(0.0)
+      all_df["total_amount"] = pd.to_numeric(all_df["total_amount"], errors="coerce").fillna(0.0)
 
-      local_mt = (
-          df_l["total_weight_mt"].sum()
-          if "total_weight_mt" in df_l.columns
-          else 0.0
-      )
-      local_ghc = (
-          df_l["total_amount"].sum() if "total_amount" in df_l.columns else 0.0
-      )
+      local_mt = df_l["total_weight_mt"].sum() if "total_weight_mt" in df_l.columns else 0.0
+      local_ghc = df_l["total_amount"].sum() if "total_amount" in df_l.columns else 0.0
 
-      protocol_mt = (
-          df_p["total_weight_mt"].sum()
-          if "total_weight_mt" in df_p.columns
-          else 0.0
-      )
-      protocol_ghc = (
-          df_p["total_amount"].sum() if "total_amount" in df_p.columns else 0.0
-      )
+      protocol_mt = df_p["total_weight_mt"].sum() if "total_weight_mt" in df_p.columns else 0.0
+      protocol_ghc = df_p["total_amount"].sum() if "total_amount" in df_p.columns else 0.0
 
-      exports_mt = (
-          df_e["total_weight_mt"].sum()
-          if "total_weight_mt" in df_e.columns
-          else 0.0
-      )
-      exports_ghc = (
-          df_e["total_amount"].sum() if "total_amount" in df_e.columns else 0.0
-      )
+      exports_mt = df_e["total_weight_mt"].sum() if "total_weight_mt" in df_e.columns else 0.0
+      exports_ghc = df_e["total_amount"].sum() if "total_amount" in df_e.columns else 0.0
 
       tot_grand_mt = local_mt + protocol_mt + exports_mt
       tot_grand_ghc = local_ghc + protocol_ghc + exports_ghc
       tot_grand_usd = (all_df["total_amount"] / all_df["exchange_rate"]).sum()
 
-      proto_weight_share = (
-          (protocol_mt / tot_grand_mt * 100.0) if tot_grand_mt > 0 else 0.0
-      )
-      proto_value_share = (
-          (protocol_ghc / tot_grand_ghc * 100.0) if tot_grand_ghc > 0 else 0.0
-      )
+      proto_weight_share = (protocol_mt / tot_grand_mt * 100.0) if tot_grand_mt > 0 else 0.0
+      proto_value_share = (protocol_ghc / tot_grand_ghc * 100.0) if tot_grand_ghc > 0 else 0.0
 
       a_col1, a_col2, a_col3, a_col4 = st.columns(4)
       a_col1.metric("Total Orders", f"{len(all_df)}")
@@ -1628,12 +1261,8 @@ with tab_analytics:
       st.markdown("### ⚖️ Weight Comparison: Domestic vs Exports")
 
       domestic_mt = local_mt + protocol_mt
-      domestic_pct = (
-          (domestic_mt / tot_grand_mt * 100.0) if tot_grand_mt > 0 else 0.0
-      )
-      exports_pct = (
-          (exports_mt / tot_grand_mt * 100.0) if tot_grand_mt > 0 else 0.0
-      )
+      domestic_pct = (domestic_mt / tot_grand_mt * 100.0) if tot_grand_mt > 0 else 0.0
+      exports_pct = (exports_mt / tot_grand_mt * 100.0) if tot_grand_mt > 0 else 0.0
 
       c_m1, c_m2 = st.columns(2)
       with c_m1:
