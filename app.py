@@ -24,9 +24,9 @@ try:
   if "DATABASE_URL" in st.secrets:
     DB_URI = st.secrets["DATABASE_URL"]
   else:
-    DB_URI = "postgresql+psycopg://neondb_owner:npg_3QSZOo9BbcNn@ep-aged-firefly-b5b01bzp-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
+    DB_URI = "postgresql://neondb_owner:npg_3QSZOo9BbcNn@ep-nameless-queen-b4sgvhbn.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
 except Exception:
-  DB_URI = "postgresql+psycopg://neondb_owner:npg_3QSZOo9BbcNn@ep-aged-firefly-b5b01bzp-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
+  DB_URI = "postgresql://neondb_owner:npg_3QSZOo9BbcNn@ep-nameless-queen-b4sgvhbn.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
 
 @st.cache_resource
@@ -193,18 +193,16 @@ def parse_weight_to_grams(w_val):
 # --- Database Operations ---
 def fetch_table(table_name):
   try:
-    query = f"SELECT * FROM {table_name} ORDER BY date DESC, id DESC"
+    query = f'SELECT * FROM "{table_name}" ORDER BY "date" DESC, "id" DESC'
     df = pd.read_sql(query, engine)
   except Exception:
     try:
-      query_fallback = f'SELECT * FROM "{table_name}"'
+      query_fallback = f"SELECT * FROM {table_name} ORDER BY date DESC, id DESC"
       df = pd.read_sql(query_fallback, engine)
     except Exception:
       df = pd.DataFrame()
 
   if not df.empty:
-    if "date" in df.columns:
-      df["date"] = pd.to_datetime(df["date"]).dt.date
     if "weight_g" in df.columns and "quantity" in df.columns:
       df["total_weight_g"] = df["quantity"] * df["weight_g"]
       df["total_weight_mt"] = df["total_weight_g"] / 1_000_000.0
@@ -212,8 +210,6 @@ def fetch_table(table_name):
       df["total_amount"] = df["quantity"] * df["unit_cost"]
     if "exchange_rate" not in df.columns:
       df["exchange_rate"] = 1.0000
-    if "batch_number" not in df.columns:
-      df["batch_number"] = "-"
   return df
 
 
