@@ -248,12 +248,11 @@ def insert_dispatch(table_name, record):
     """)
   with engine.begin() as conn:
     conn.execute(insert_sql, record)
+  
+  # Explicit local write with visible error feedback
   if engine_local:
-    try:
-      with engine_local.begin() as conn_loc:
-        conn_loc.execute(insert_sql, record)
-    except Exception:
-      pass
+    with engine_local.begin() as conn_loc:
+      conn_loc.execute(insert_sql, record)
 
 
 def update_dispatch_record(table_name, record_id, record):
