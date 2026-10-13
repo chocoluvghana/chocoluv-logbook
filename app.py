@@ -104,6 +104,14 @@ def get_db_engines():
     )
     with engine_local.begin() as conn:
       conn.execute(text(init_sql))
+      
+      # Auto-sync existing Neon records to local if local tables are empty
+      for tbl in ["local_sales", "export_sales", "protocol_sales", "staff_users"]:
+        local_count = conn.execute(text(f"SELECT COUNT(*) FROM {tbl}")).scalar()
+        if local_count == 0:
+          neon_df = pd.read_sql(f"SELECT * FROM {tbl}", engine_neon)
+          if not neon_df.empty:
+            neon_df.to_sql(tbl, con=engine_local, if_exists="append", index=False)
   except Exception as e:
     st.sidebar.error(f"Local DB Error: {e}")
     engine_local = None
