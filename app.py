@@ -33,9 +33,9 @@ try:
   if "LOCAL_DATABASE_URL" in st.secrets:
     LOCAL_DB_URI = st.secrets["LOCAL_DATABASE_URL"]
   else:
-    LOCAL_DB_URI = "postgresql+psycopg://postgres:Chocoluv@2026postgres@localhost:5432/chocoluv_db"
+    LOCAL_DB_URI = "postgresql+psycopg://postgres:Chocoluv%402026postgres@localhost:5432/chocoluv_db"
 except Exception:
-  LOCAL_DB_URI = "postgresql+psycopg://postgres:Chocoluv@2026postgres@localhost:5432/chocoluv_db"
+  LOCAL_DB_URI = "postgresql+psycopg://postgres:Chocoluv%402026postgres@localhost:5432/chocoluv_db"
 
 
 @st.cache_resource
