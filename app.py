@@ -103,7 +103,8 @@ def get_db_engines():
     )
     with engine_local.begin() as conn:
       conn.execute(text(init_sql))
-  except Exception:
+  except Exception as e:
+    st.sidebar.error(f"Local DB Failed: {e}")
     engine_local = None
 
   return engine_neon, engine_local
