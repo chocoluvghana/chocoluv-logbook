@@ -19,24 +19,70 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Database Connection (PostgreSQL Cloud / Local Fallback) ---
+# --- Database Connection & Auto-Table Initialization ---
 try:
   if "DATABASE_URL" in st.secrets:
     DB_URI = st.secrets["DATABASE_URL"]
   else:
-    DB_URI = "postgresql+psycopg2-binary://neondb_owner:npg_3QSZOo9BbcNn@ep-nameless-queen-b4sgvhbn.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
+    DB_URI = "postgresql+psycopg://neondb_owner:npg_p4rhxY6HwWCL@ep-nameless-queen-b4sgvhbn.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
 except Exception:
-  DB_URI = "postgresql+psycopg2-binary://neondb_owner:npg_3QSZOo9BbcNn@ep-nameless-queen-b4sgvhbn.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
+  DB_URI = "postgresql+psycopg://neondb_owner:npg_p4rhxY6HwWCL@ep-nameless-queen-b4sgvhbn.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
 
 @st.cache_resource
 def get_db_engine():
-  return create_engine(
+  engine = create_engine(
       DB_URI,
       pool_pre_ping=True,
       pool_recycle=300,
       connect_args={"connect_timeout": 15},
   )
+  with engine.begin() as conn:
+    conn.execute(
+        text("""
+            CREATE TABLE IF NOT EXISTS local_sales (
+                id SERIAL PRIMARY KEY,
+                date DATE,
+                customer_name TEXT,
+                batch_number TEXT,
+                product_name TEXT,
+                weight_g FLOAT,
+                quantity INT,
+                unit_cost FLOAT,
+                exchange_rate FLOAT DEFAULT 1.0,
+                entered_by TEXT
+            );
+            CREATE TABLE IF NOT EXISTS export_sales (
+                id SERIAL PRIMARY KEY,
+                date DATE,
+                customer_name TEXT,
+                batch_number TEXT,
+                product_name TEXT,
+                weight_g FLOAT,
+                quantity INT,
+                unit_cost FLOAT,
+                exchange_rate FLOAT DEFAULT 1.0,
+                entered_by TEXT
+            );
+            CREATE TABLE IF NOT EXISTS protocol_sales (
+                id SERIAL PRIMARY KEY,
+                date DATE,
+                customer_name TEXT,
+                batch_number TEXT,
+                product_name TEXT,
+                weight_g FLOAT,
+                quantity INT,
+                unit_cost FLOAT,
+                exchange_rate FLOAT DEFAULT 1.0,
+                entered_by TEXT
+            );
+            CREATE TABLE IF NOT EXISTS staff_users (
+                username TEXT PRIMARY KEY,
+                password_hash TEXT
+            );
+        """)
+    )
+  return engine
 
 
 engine = get_db_engine()
@@ -146,8 +192,25 @@ def parse_weight_to_grams(w_val):
 
 # --- Database Operations ---
 def fetch_table(table_name):
-  query = f"SELECT * FROM {table_name} ORDER BY date DESC, id DESC"
-  return pd.read_sql(query, engine)
+  try:
+    query = f'SELECT * FROM "{table_name}" ORDER BY "date" DESC, "id" DESC'
+    df = pd.read_sql(query, engine)
+  except Exception:
+    try:
+      query_fallback = f"SELECT * FROM {table_name} ORDER BY date DESC, id DESC"
+      df = pd.read_sql(query_fallback, engine)
+    except Exception:
+      df = pd.DataFrame()
+
+  if not df.empty:
+    if "weight_g" in df.columns and "quantity" in df.columns:
+      df["total_weight_g"] = df["quantity"] * df["weight_g"]
+      df["total_weight_mt"] = df["total_weight_g"] / 1_000_000.0
+    if "unit_cost" in df.columns and "quantity" in df.columns:
+      df["total_amount"] = df["quantity"] * df["unit_cost"]
+    if "exchange_rate" not in df.columns:
+      df["exchange_rate"] = 1.0000
+  return df
 
 
 def insert_dispatch(table_name, record):
