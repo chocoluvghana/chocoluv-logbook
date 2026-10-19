@@ -33,7 +33,7 @@ LOCAL_DB_URI = URL.create(
     drivername="postgresql+psycopg",
     username="postgres",
     password="Chocoluv@2026",
-    host="localhost",
+    host="127.0.0.1",
     port=5432,
     database="chocoluv_db",
 )
@@ -912,7 +912,6 @@ tab_entry, tab_local, tab_export, tab_protocol, tab_qa, tab_analytics = st.tabs(
 with tab_entry:
   st.subheader("Sales Details (Packaging / Entry)")
   
-  # --- Initialize Session State for Auto-Filling ---
   if "current_weight" not in st.session_state:
     st.session_state.current_weight = 50.0
   if "current_cost" not in st.session_state:
