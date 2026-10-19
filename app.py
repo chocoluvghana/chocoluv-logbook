@@ -1208,31 +1208,38 @@ with tab_analytics:
     df_e = fetch_table("export_sales")
     df_p = fetch_table("protocol_sales")
 
-    df_l["Channel"], df_l["Source Table"] = "Local Sales", "Local Sales Table"
-    df_p["Channel"], df_p["Source Table"] = "Protocol", "Protocol Table"
-    df_e["Channel"], df_e["Source Table"] = "Exports", "Exports Table"
+    for df, channel_name, table_label in [
+        (df_l, "Local Sales", "Local Sales Table"),
+        (df_e, "Exports", "Exports Table"),
+        (df_p, "Protocol", "Protocol Table")
+    ]:
+      df["Channel"] = channel_name
+      df["Source Table"] = table_label
+      if "total_weight_mt" not in df.columns:
+        df["total_weight_mt"] = (df["quantity"] * df["weight_g"] / 1_000_000.0) if not df.empty else 0.0
+      if "total_amount" not in df.columns:
+        df["total_amount"] = (df["quantity"] * df["unit_cost"]) if not df.empty else 0.0
+      if "exchange_rate" not in df.columns:
+        df["exchange_rate"] = 1.0000
 
     all_df = pd.concat([df_l, df_e, df_p], ignore_index=True)
 
     if not all_df.empty:
-      if "exchange_rate" not in all_df.columns:
-        all_df["exchange_rate"] = 1.0000
-
       all_df["total_weight_mt"] = pd.to_numeric(all_df["total_weight_mt"], errors="coerce").fillna(0.0)
       all_df["total_amount"] = pd.to_numeric(all_df["total_amount"], errors="coerce").fillna(0.0)
 
-      local_mt = df_l["total_weight_mt"].sum() if "total_weight_mt" in df_l.columns else 0.0
-      local_ghc = df_l["total_amount"].sum() if "total_amount" in df_l.columns else 0.0
+      local_mt = df_l["total_weight_mt"].sum() if not df_l.empty else 0.0
+      local_ghc = df_l["total_amount"].sum() if not df_l.empty else 0.0
 
-      protocol_mt = df_p["total_weight_mt"].sum() if "total_weight_mt" in df_p.columns else 0.0
-      protocol_ghc = df_p["total_amount"].sum() if "total_amount" in df_p.columns else 0.0
+      protocol_mt = df_p["total_weight_mt"].sum() if not df_p.empty else 0.0
+      protocol_ghc = df_p["total_amount"].sum() if not df_p.empty else 0.0
 
-      exports_mt = df_e["total_weight_mt"].sum() if "total_weight_mt" in df_e.columns else 0.0
-      exports_ghc = df_e["total_amount"].sum() if "total_amount" in df_e.columns else 0.0
+      exports_mt = df_e["total_weight_mt"].sum() if not df_e.empty else 0.0
+      exports_ghc = df_e["total_amount"].sum() if not df_e.empty else 0.0
 
       tot_grand_mt = local_mt + protocol_mt + exports_mt
       tot_grand_ghc = local_ghc + protocol_ghc + exports_ghc
-      tot_grand_usd = (all_df["total_amount"] / all_df["exchange_rate"]).sum()
+      tot_grand_usd = (all_df["total_amount"] / all_df["exchange_rate"]).sum() if not all_df.empty else 0.0
 
       proto_weight_share = (protocol_mt / tot_grand_mt * 100.0) if tot_grand_mt > 0 else 0.0
       proto_value_share = (protocol_ghc / tot_grand_ghc * 100.0) if tot_grand_ghc > 0 else 0.0
@@ -1242,6 +1249,104 @@ with tab_analytics:
       a_col2.metric("Total Weight (MT)", f"{tot_grand_mt:,.6f} MT")
       a_col3.metric("Total Money (GH₵)", f"GH₵ {tot_grand_ghc:,.2f}")
       a_col4.metric("Total Money (USD)", f"${tot_grand_usd:,.2f}")
+
+      st.markdown("---")
+      st.markdown("### 🍫 Most Sold Products by Each Channel")
+      
+      prod_cols = st.columns(3)
+      channel_data_map = [
+          ("Top Products: Local Sales", df_l, "Local Sales Table only"),
+          ("Top Products: Exports", df_e, "Exports Table only"),
+          ("Top Products: Protocol", df_p, "Protocol Table only")
+      ]
+
+      for i, (title, channel_df, src_label) in enumerate(channel_data_map):
+        with prod_cols[i]:
+          st.markdown(f"#### {title}")
+          st.caption(f"📌 Source: {src_label}")
+          if not channel_df.empty and "product_name" in channel_df.columns and "quantity" in channel_df.columns:
+            top_prod = channel_df.groupby("product_name")["quantity"].sum().reset_index()
+            top_prod = top_prod.sort_values(by="quantity", ascending=False).head(7)
+            
+            fig_prod = px.bar(
+                top_prod,
+                x="product_name",
+                y="quantity",
+                text="quantity",
+                color_discrete_sequence=["#1E88E5"]
+            )
+            fig_prod.update_traces(texttemplate="%{text}", textposition="outside", marker_color="#1E88E5", marker_line_color="#FFFFFF", marker_line_width=1.5)
+            fig_prod.update_layout(
+                xaxis_title="",
+                yaxis_title="Units Sold",
+                margin=dict(t=20, b=40, l=10, r=10),
+                height=280,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#ffffff"),
+                xaxis=dict(tickangle=-45)
+            )
+            st.plotly_chart(fig_prod, use_container_width=True)
+          else:
+            st.info("No records in table.")
+
+      st.markdown("---")
+      st.markdown("### 📊 Orders and Money by Channel")
+      
+      channel_summary_df = pd.DataFrame({
+          "Channel": ["Exports", "Local Sales", "Protocol"],
+          "Orders": [len(df_e), len(df_l), len(df_p)],
+          "Amount": [exports_ghc, local_ghc, protocol_ghc]
+      })
+
+      ch_col1, ch_col2 = st.columns(2)
+      with ch_col1:
+        st.markdown("#### Number of Orders by Channel")
+        st.caption("📌 Source: Total order rows in Local Sales Table, Protocol Table, and Exports Table separately")
+        fig_ch_orders = px.bar(
+            channel_summary_df,
+            x="Channel",
+            y="Orders",
+            text="Orders",
+            color="Channel",
+            color_discrete_map={"Exports": "#1E88E5", "Local Sales": "#64B5F6", "Protocol": "#FFFFFF"}
+        )
+        fig_ch_orders.update_traces(texttemplate="%{text}", textposition="outside", marker_line_color="#FFFFFF", marker_line_width=1.5)
+        fig_ch_orders.update_layout(
+            xaxis_title="",
+            yaxis_title="Orders",
+            margin=dict(t=20, b=20, l=10, r=10),
+            showlegend=False,
+            height=300,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#ffffff")
+        )
+        st.plotly_chart(fig_ch_orders, use_container_width=True)
+
+      with ch_col2:
+        st.markdown("#### Total Money (GH₵) by Channel")
+        st.caption("📌 Source: Sum of money recorded in Local Sales Table, Protocol Table, and Exports Table separately")
+        fig_ch_money = px.bar(
+            channel_summary_df,
+            x="Channel",
+            y="Amount",
+            text="Amount",
+            color="Channel",
+            color_discrete_map={"Exports": "#1E88E5", "Local Sales": "#64B5F6", "Protocol": "#FFFFFF"}
+        )
+        fig_ch_money.update_traces(texttemplate="GH₵ %{text:,.2f}", textposition="outside", marker_line_color="#FFFFFF", marker_line_width=1.5)
+        fig_ch_money.update_layout(
+            xaxis_title="",
+            yaxis_title="Amount (GH₵)",
+            margin=dict(t=20, b=20, l=10, r=10),
+            showlegend=False,
+            height=300,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#ffffff")
+        )
+        st.plotly_chart(fig_ch_money, use_container_width=True)
 
       st.markdown("---")
       st.markdown("### 🏛️ Protocol Tracker")
@@ -1301,8 +1406,9 @@ with tab_analytics:
             values="Weight (MT)",
             hole=0.45,
             color="Market",
-            color_discrete_map={"Domestic": "#8B263E", "Exports": "#1E88E5"},
+            color_discrete_map={"Domestic": "#64B5F6", "Exports": "#1E88E5"},
         )
+        fig_donut.update_traces(marker=dict(line=dict(color="#FFFFFF", width=2)))
         fig_donut.update_layout(
             margin=dict(t=20, b=20, l=10, r=10),
             showlegend=False,
@@ -1315,17 +1421,15 @@ with tab_analytics:
 
       with c_chart2:
         st.markdown("#### Total Weight in Metric Tonnes: Domestic vs Exports")
-        # Ensure rows with 0.0 values or single entries map cleanly without filtering out
         fig_bar_comp = px.bar(
             comp_df,
             x="Market",
             y="Weight (MT)",
             text="Weight (MT)",
             color="Market",
-            color_discrete_map={"Domestic": "#8B263E", "Exports": "#1E88E5"},
+            color_discrete_map={"Domestic": "#64B5F6", "Exports": "#1E88E5"},
         )
-        fig_bar_comp.update_traces(texttemplate="%{text:.4f} MT", textposition="outside")
-        # Fix axis configuration so both categories always display even if one is zero
+        fig_bar_comp.update_traces(texttemplate="%{text:.4f} MT", textposition="outside", marker_line_color="#FFFFFF", marker_line_width=1.5)
         fig_bar_comp.update_layout(
             xaxis=dict(categoryorder="array", categoryarray=["Domestic", "Exports"]),
             yaxis_title="Metric Tonnes (MT)",
