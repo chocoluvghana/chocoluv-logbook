@@ -28,10 +28,12 @@ try:
 except Exception:
   DB_URI = "postgresql+psycopg://neondb_owner:npg_p4rhxY6HwWCL@ep-aged-firefly-b5b01bzp-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
+local_pass = st.secrets.get("LOCAL_DB_PASSWORD", "Chocoluv@2026")
+
 LOCAL_DB_URI = URL.create(
     drivername="postgresql+psycopg",
     username="postgres",
-    password="Chocoluv@2026",
+    password=local_pass,
     host="127.0.0.1",
     port=5432,
     database="chocoluv_db",
@@ -823,7 +825,6 @@ def render_table_edit_delete_bar(table_name, key_prefix):
     if "batch_number" not in current_df.columns:
       current_df["batch_number"] = ""
 
-    # Each entry in the dropdown now uniquely includes Record ID, Date, Client, and Product
     current_df["display_label"] = current_df.apply(
         lambda r: f"Record #{r['id']} | {r['date']} | {r['customer_name']} | Product: {r['product_name']} (Qty: {r['quantity']})",
         axis=1,
