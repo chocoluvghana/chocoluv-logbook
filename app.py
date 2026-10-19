@@ -163,7 +163,7 @@ def load_product_catalog():
         ("50g Dark Coffee 72%", "50g", 16.0, 50.0),
         ("50g Dark Ginger 72%", "50g", 16.0, 50.0),
         ("50g Dark Nibs 72%", "50g", 16.0, 50.0),
-        ("50g Dark with Almond", "80g", 16.0, 60.0),
+        ("50g Dark with Almond", "50g", 16.0, 60.0),
         ("50g Dark with Kelewele", "50g", 16.0, 50.0),
         ("50g Dark with Cashew/Millet", "50g", 16.0, 50.0),
         ("50g Dark with Chilli", "50g", 16.0, 50.0),
@@ -171,7 +171,7 @@ def load_product_catalog():
         ("50g Milk Coffee 50%", "50g", 16.0, 50.0),
         ("50g Milk Ginger 50%", "50g", 16.0, 50.0),
         ("50g Milk Orange 50%", "50g", 16.0, 50.0),
-        ("50g Milk with Almond", "80g", 16.0, 60.0),
+        ("50g Milk with Almond", "50g", 16.0, 60.0),
         ("50g Milk with Kelewele", "50g", 16.0, 50.0),
         ("50g Milk with Calabash Nutmeg", "50g", 16.0, 50.0),
         ("50g Milk with Cashew/Millet", "50g", 16.0, 50.0),
@@ -1251,126 +1251,6 @@ with tab_analytics:
       a_col4.metric("Total Money (USD)", f"${tot_grand_usd:,.2f}")
 
       st.markdown("---")
-      st.markdown("### 🍫 Most Sold Products by Each Channel")
-      
-      prod_cols = st.columns(3)
-      channel_data_map = [
-          ("Top Products: Local Sales", df_l, "Local Sales Table only"),
-          ("Top Products: Exports", df_e, "Exports Table only"),
-          ("Top Products: Protocol", df_p, "Protocol Table only")
-      ]
-
-      for i, (title, channel_df, src_label) in enumerate(channel_data_map):
-        with prod_cols[i]:
-          st.markdown(f"#### {title}")
-          st.caption(f"📌 Source: {src_label}")
-          if not channel_df.empty and "product_name" in channel_df.columns and "quantity" in channel_df.columns:
-            top_prod = channel_df.groupby("product_name")["quantity"].sum().reset_index()
-            top_prod = top_prod.sort_values(by="quantity", ascending=False).head(7)
-            
-            fig_prod = px.bar(
-                top_prod,
-                x="product_name",
-                y="quantity",
-                text="quantity",
-                color_discrete_sequence=["#1E88E5"]
-            )
-            fig_prod.update_traces(texttemplate="%{text}", textposition="outside", marker_color="#1E88E5", marker_line_color="#FFFFFF", marker_line_width=1.5)
-            fig_prod.update_layout(
-                xaxis_title="",
-                yaxis_title="Units Sold",
-                margin=dict(t=20, b=40, l=10, r=10),
-                height=280,
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#ffffff"),
-                xaxis=dict(tickangle=-45)
-            )
-            st.plotly_chart(fig_prod, use_container_width=True)
-          else:
-            st.info("No records in table.")
-
-      st.markdown("---")
-      st.markdown("### 📊 Orders and Money by Channel")
-      
-      channel_summary_df = pd.DataFrame({
-          "Channel": ["Exports", "Local Sales", "Protocol"],
-          "Orders": [len(df_e), len(df_l), len(df_p)],
-          "Amount": [exports_ghc, local_ghc, protocol_ghc]
-      })
-
-      ch_col1, ch_col2 = st.columns(2)
-      with ch_col1:
-        st.markdown("#### Number of Orders by Channel")
-        st.caption("📌 Source: Total order rows in Local Sales Table, Protocol Table, and Exports Table separately")
-        fig_ch_orders = px.bar(
-            channel_summary_df,
-            x="Channel",
-            y="Orders",
-            text="Orders",
-            color="Channel",
-            color_discrete_map={"Exports": "#1E88E5", "Local Sales": "#64B5F6", "Protocol": "#FFFFFF"}
-        )
-        fig_ch_orders.update_traces(texttemplate="%{text}", textposition="outside", marker_line_color="#FFFFFF", marker_line_width=1.5)
-        fig_ch_orders.update_layout(
-            xaxis_title="",
-            yaxis_title="Orders",
-            margin=dict(t=20, b=20, l=10, r=10),
-            showlegend=False,
-            height=300,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#ffffff")
-        )
-        st.plotly_chart(fig_ch_orders, use_container_width=True)
-
-      with ch_col2:
-        st.markdown("#### Total Money (GH₵) by Channel")
-        st.caption("📌 Source: Sum of money recorded in Local Sales Table, Protocol Table, and Exports Table separately")
-        fig_ch_money = px.bar(
-            channel_summary_df,
-            x="Channel",
-            y="Amount",
-            text="Amount",
-            color="Channel",
-            color_discrete_map={"Exports": "#1E88E5", "Local Sales": "#64B5F6", "Protocol": "#FFFFFF"}
-        )
-        fig_ch_money.update_traces(texttemplate="GH₵ %{text:,.2f}", textposition="outside", marker_line_color="#FFFFFF", marker_line_width=1.5)
-        fig_ch_money.update_layout(
-            xaxis_title="",
-            yaxis_title="Amount (GH₵)",
-            margin=dict(t=20, b=20, l=10, r=10),
-            showlegend=False,
-            height=300,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#ffffff")
-        )
-        st.plotly_chart(fig_ch_money, use_container_width=True)
-
-      st.markdown("---")
-      st.markdown("### 🏛️ Protocol Tracker")
-      pr_col1, pr_col2, pr_col3 = st.columns(3)
-      with pr_col1:
-        st.metric(
-            label="Protocol Weight",
-            value=f"{protocol_mt:,.6f} MT",
-            delta=f"{proto_weight_share:.2f}% of All Weight",
-        )
-      with pr_col2:
-        st.metric(
-            label="Protocol Money Value",
-            value=f"GH₵ {protocol_ghc:,.2f}",
-            delta=f"{proto_value_share:.2f}% of All Money",
-        )
-      with pr_col3:
-        st.metric(
-            label="Protocol Orders",
-            value=f"{len(df_p)} orders",
-            delta=f"{(len(df_p) / len(all_df) * 100 if len(all_df) > 0 else 0):.1f}% of total",
-        )
-
-      st.markdown("---")
       st.markdown("### ⚖️ Weight Comparison: Domestic vs Exports")
 
       domestic_mt = local_mt + protocol_mt
@@ -1406,9 +1286,9 @@ with tab_analytics:
             values="Weight (MT)",
             hole=0.45,
             color="Market",
-            color_discrete_map={"Domestic": "#64B5F6", "Exports": "#1E88E5"},
+            color_discrete_map={"Domestic": "#1E88E5", "Exports": "#FFFFFF"},
         )
-        fig_donut.update_traces(marker=dict(line=dict(color="#FFFFFF", width=2)))
+        fig_donut.update_traces(marker=dict(line=dict(color="#000000", width=2)))
         fig_donut.update_layout(
             margin=dict(t=20, b=20, l=10, r=10),
             showlegend=False,
@@ -1427,9 +1307,9 @@ with tab_analytics:
             y="Weight (MT)",
             text="Weight (MT)",
             color="Market",
-            color_discrete_map={"Domestic": "#64B5F6", "Exports": "#1E88E5"},
+            color_discrete_map={"Domestic": "#1E88E5", "Exports": "#FFFFFF"},
         )
-        fig_bar_comp.update_traces(texttemplate="%{text:.4f} MT", textposition="outside", marker_line_color="#FFFFFF", marker_line_width=1.5)
+        fig_bar_comp.update_traces(texttemplate="%{text:.4f} MT", textposition="outside", marker_line_color="#000000", marker_line_width=1.5)
         fig_bar_comp.update_layout(
             xaxis=dict(categoryorder="array", categoryarray=["Domestic", "Exports"]),
             yaxis_title="Metric Tonnes (MT)",
@@ -1442,6 +1322,132 @@ with tab_analytics:
             font=dict(color="#ffffff"),
         )
         st.plotly_chart(fig_bar_comp, use_container_width=True)
+
+      st.markdown("---")
+      st.markdown("### 🍫 Most Sold Products by Each Channel")
+      
+      prod_cols = st.columns(3)
+      channel_data_map = [
+          ("Top Products: Local Sales", df_l, "Local Sales Table only"),
+          ("Top Products: Exports", df_e, "Exports Table only"),
+          ("Top Products: Protocol", df_p, "Protocol Table only")
+      ]
+
+      for i, (title, channel_df, src_label) in enumerate(channel_data_map):
+        with prod_cols[i]:
+          st.markdown(f"#### {title}")
+          st.caption(f"📌 Source: {src_label}")
+          if not channel_df.empty and "product_name" in channel_df.columns and "quantity" in channel_df.columns:
+            top_prod = channel_df.groupby("product_name")["quantity"].sum().reset_index()
+            top_prod = top_prod.sort_values(by="quantity", ascending=False).head(7)
+            
+            # Match coloring logic per channel context: Local Sales = Blue, Exports = White, Protocol = Yellow
+            bar_color = "#1E88E5" if "Local Sales" in title else ("#FFFFFF" if "Exports" in title else "#FFD700")
+            text_color_val = "#000000" if bar_color in ["#FFFFFF", "#FFD700"] else "#FFFFFF"
+
+            fig_prod = px.bar(
+                top_prod,
+                x="product_name",
+                y="quantity",
+                text="quantity",
+                color_discrete_sequence=[bar_color]
+            )
+            fig_prod.update_traces(texttemplate="%{text}", textposition="outside", marker_color=bar_color, marker_line_color="#000000", marker_line_width=1.5)
+            fig_prod.update_layout(
+                xaxis_title="",
+                yaxis_title="Units Sold",
+                margin=dict(t=20, b=40, l=10, r=10),
+                height=280,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#ffffff"),
+                xaxis=dict(tickangle=-45)
+            )
+            st.plotly_chart(fig_prod, use_container_width=True)
+          else:
+            st.info("No records in table.")
+
+      st.markdown("---")
+      st.markdown("### 📊 Orders and Money by Channel")
+      
+      channel_summary_df = pd.DataFrame({
+          "Channel": ["Local Sales", "Exports", "Protocol"],
+          "Orders": [len(df_l), len(df_e), len(df_p)],
+          "Amount": [local_ghc, exports_ghc, protocol_ghc]
+      })
+
+      ch_col1, ch_col2 = st.columns(2)
+      with ch_col1:
+        st.markdown("#### Number of Orders by Channel")
+        st.caption("📌 Source: Total order rows in Local Sales Table, Protocol Table, and Exports Table separately")
+        fig_ch_orders = px.bar(
+            channel_summary_df,
+            x="Channel",
+            y="Orders",
+            text="Orders",
+            color="Channel",
+            color_discrete_map={"Local Sales": "#1E88E5", "Exports": "#FFFFFF", "Protocol": "#FFD700"}
+        )
+        fig_ch_orders.update_traces(texttemplate="%{text}", textposition="outside", marker_line_color="#000000", marker_line_width=1.5)
+        fig_ch_orders.update_layout(
+            xaxis=dict(categoryorder="array", categoryarray=["Local Sales", "Exports", "Protocol"]),
+            xaxis_title="",
+            yaxis_title="Orders",
+            margin=dict(t=20, b=20, l=10, r=10),
+            showlegend=False,
+            height=300,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#ffffff")
+        )
+        st.plotly_chart(fig_ch_orders, use_container_width=True)
+
+      with ch_col2:
+        st.markdown("#### Total Money (GH₵) by Channel")
+        st.caption("📌 Source: Sum of money recorded in Local Sales Table, Protocol Table, and Exports Table separately")
+        fig_ch_money = px.bar(
+            channel_summary_df,
+            x="Channel",
+            y="Amount",
+            text="Amount",
+            color="Channel",
+            color_discrete_map={"Local Sales": "#1E88E5", "Exports": "#FFFFFF", "Protocol": "#FFD700"}
+        )
+        fig_ch_money.update_traces(texttemplate="GH₵ %{text:,.2f}", textposition="outside", marker_line_color="#000000", marker_line_width=1.5)
+        fig_ch_money.update_layout(
+            xaxis=dict(categoryorder="array", categoryarray=["Local Sales", "Exports", "Protocol"]),
+            xaxis_title="",
+            yaxis_title="Amount (GH₵)",
+            margin=dict(t=20, b=20, l=10, r=10),
+            showlegend=False,
+            height=300,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#ffffff")
+        )
+        st.plotly_chart(fig_ch_money, use_container_width=True)
+
+      st.markdown("---")
+      st.markdown("### 🏛️ Protocol Tracker")
+      pr_col1, pr_col2, pr_col3 = st.columns(3)
+      with pr_col1:
+        st.metric(
+            label="Protocol Weight",
+            value=f"{protocol_mt:,.6f} MT",
+            delta=f"{proto_weight_share:.2f}% of All Weight",
+        )
+      with pr_col2:
+        st.metric(
+            label="Protocol Money Value",
+            value=f"GH₵ {protocol_ghc:,.2f}",
+            delta=f"{proto_value_share:.2f}% of All Money",
+        )
+      with pr_col3:
+        st.metric(
+            label="Protocol Orders",
+            value=f"{len(df_p)} orders",
+            delta=f"{(len(df_p) / len(all_df) * 100 if len(all_df) > 0 else 0):.1f}% of total",
+        )
 
     else:
       st.info("No orders found across the tables to display graphs.")
