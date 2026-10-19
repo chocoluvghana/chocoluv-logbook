@@ -6,7 +6,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
 import plotly.express as px
-from sqlalchemy import create_engine, text
+from sqlalchemy import URL, create_engine, text
 import streamlit as st
 import streamlit.components.v1 as components
 import re
@@ -19,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Database Connection & Auto-Table Initialization ---
+# --- Dual-Database Connection & Auto-Table Initialization ---
 try:
   if "DATABASE_URL" in st.secrets:
     DB_URI = st.secrets["DATABASE_URL"]
@@ -28,8 +28,19 @@ try:
 except Exception:
   DB_URI = "postgresql+psycopg://neondb_owner:npg_p4rhxY6HwWCL@ep-aged-firefly-b5b01bzp-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
+# Safe local database URI construction using IPv4 to avoid connection errors
+LOCAL_DB_URI = URL.create(
+    drivername="postgresql+psycopg",
+    username="postgres",
+    password="Chocoluv@2026",
+    host="127.0.0.1",
+    port=5432,
+    database="chocoluv_db",
+)
+
+
 @st.cache_resource
-def get_db_engine():
+def get_db_engines():
   engine_neon = create_engine(
       DB_URI,
       pool_pre_ping=True,
@@ -83,10 +94,32 @@ def get_db_engine():
   with engine_neon.begin() as conn:
     conn.execute(text(init_sql))
 
-  return engine_neon
+  engine_local = None
+  try:
+    engine_local = create_engine(
+        LOCAL_DB_URI,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        connect_args={"connect_timeout": 5},
+    )
+    with engine_local.begin() as conn:
+      conn.execute(text(init_sql))
+      
+      # Auto-sync existing Neon records to local if local tables are empty
+      for tbl in ["local_sales", "export_sales", "protocol_sales", "staff_users"]:
+        local_count = conn.execute(text(f"SELECT COUNT(*) FROM {tbl}")).scalar()
+        if local_count == 0:
+          neon_df = pd.read_sql(f"SELECT * FROM {tbl}", engine_neon)
+          if not neon_df.empty:
+            neon_df.to_sql(tbl, con=engine_local, if_exists="append", index=False)
+  except Exception as e:
+    st.sidebar.error(f"Local DB Error: {e}")
+    engine_local = None
 
-engine = get_db_engine()
-engine_local = None
+  return engine_neon, engine_local
+
+
+engine, engine_local = get_db_engines()
 
 TABLE_MAP = {
     "Local Sales": "local_sales",
@@ -195,15 +228,16 @@ def parse_weight_to_grams(w_val, product_name=""):
   return 50.0
 
 
-# --- Database Operations ---
+# --- Database Operations (Dual-Write & Dual-Read) ---
 def fetch_table(table_name):
+  active_engine = engine_local if engine_local else engine
   try:
     query = f"SELECT * FROM {table_name} ORDER BY date DESC, id DESC"
-    df = pd.read_sql(query, engine)
+    df = pd.read_sql(query, active_engine)
   except Exception:
     try:
       query_fallback = f'SELECT * FROM "{table_name}"'
-      df = pd.read_sql(query_fallback, engine)
+      df = pd.read_sql(query_fallback, active_engine)
     except Exception:
       df = pd.DataFrame()
 
@@ -229,6 +263,12 @@ def insert_dispatch(table_name, record):
     """)
   with engine.begin() as conn:
     conn.execute(insert_sql, record)
+  if engine_local:
+    try:
+      with engine_local.begin() as conn_loc:
+        conn_loc.execute(insert_sql, record)
+    except Exception as e:
+      st.error(f"Failed to write to local DB: {e}")
 
 
 def update_dispatch_record(table_name, record_id, record):
@@ -247,12 +287,24 @@ def update_dispatch_record(table_name, record_id, record):
   record["id"] = record_id
   with engine.begin() as conn:
     conn.execute(update_sql, record)
+  if engine_local:
+    try:
+      with engine_local.begin() as conn_loc:
+        conn_loc.execute(update_sql, record)
+    except Exception:
+      pass
 
 
 def delete_record(table_name, record_id):
   sql = text(f"DELETE FROM {table_name} WHERE id = :id")
   with engine.begin() as conn:
     conn.execute(sql, {"id": record_id})
+  if engine_local:
+    try:
+      with engine_local.begin() as conn_loc:
+        conn_loc.execute(sql, {"id": record_id})
+    except Exception:
+      pass
 
 
 def apply_monthly_rate(table_name, year, month, rate):
@@ -263,6 +315,12 @@ def apply_monthly_rate(table_name, year, month, rate):
     """)
   with engine.begin() as conn:
     conn.execute(sql, {"rate": rate, "yr": year, "mo": month})
+  if engine_local:
+    try:
+      with engine_local.begin() as conn_loc:
+        conn_loc.execute(sql, {"rate": rate, "yr": year, "mo": month})
+    except Exception:
+      pass
 
 
 def update_row_rate(table_name, record_id, rate):
@@ -273,6 +331,12 @@ def update_row_rate(table_name, record_id, rate):
     """)
   with engine.begin() as conn:
     conn.execute(sql, {"rate": rate, "id": record_id})
+  if engine_local:
+    try:
+      with engine_local.begin() as conn_loc:
+        conn_loc.execute(sql, {"rate": rate, "id": record_id})
+    except Exception:
+      pass
 
 
 # --- Staff Database Authentication Functions ---
@@ -281,11 +345,12 @@ def hash_text(secret: str) -> str:
 
 
 def get_staff_account(username: str):
+  active_engine = engine_local if engine_local else engine
   sql = text(
       "SELECT username, password_hash FROM staff_users WHERE"
       " LOWER(username)=LOWER(:u) LIMIT 1"
   )
-  with engine.connect() as conn:
+  with active_engine.connect() as conn:
     res = conn.execute(sql, {"u": username.strip()}).fetchone()
     return res
 
@@ -297,6 +362,12 @@ def register_staff_account(username: str, secret: str):
     """)
   with engine.begin() as conn:
     conn.execute(sql, {"u": username.strip().title(), "p": hash_text(secret)})
+  if engine_local:
+    try:
+      with engine_local.begin() as conn_loc:
+        conn_loc.execute(sql, {"u": username.strip().title(), "p": hash_text(secret)})
+    except Exception:
+      pass
 
 
 # --- Universal Theme Immunity ---
