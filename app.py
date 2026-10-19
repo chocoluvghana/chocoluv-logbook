@@ -1417,7 +1417,7 @@ with tab_analytics:
         )
         fig_ch_money.update_traces(texttemplate="GH₵ %{text:,.2f}", textposition="outside", marker_line_color="#000000", marker_line_width=1.5)
         fig_ch_money.update_layout(
-            xaxis=dict(categoryorder="array", categoryarray=["Local Sales", "Exports", "Protocol"],
+            xaxis=dict(categoryorder="array", categoryarray=["Local Sales", "Exports", "Protocol"]),
             xaxis_title="",
             yaxis_title="Amount (GH₵)",
             margin=dict(t=20, b=20, l=10, r=10),
