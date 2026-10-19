@@ -163,7 +163,7 @@ def load_product_catalog():
         ("50g Dark Coffee 72%", "50g", 16.0, 50.0),
         ("50g Dark Ginger 72%", "50g", 16.0, 50.0),
         ("50g Dark Nibs 72%", "50g", 16.0, 50.0),
-        ("50g Dark with Almond", "50g", 16.0, 60.0),
+        ("50g Dark with Almond", "80g", 16.0, 60.0),
         ("50g Dark with Kelewele", "50g", 16.0, 50.0),
         ("50g Dark with Cashew/Millet", "50g", 16.0, 50.0),
         ("50g Dark with Chilli", "50g", 16.0, 50.0),
@@ -171,7 +171,7 @@ def load_product_catalog():
         ("50g Milk Coffee 50%", "50g", 16.0, 50.0),
         ("50g Milk Ginger 50%", "50g", 16.0, 50.0),
         ("50g Milk Orange 50%", "50g", 16.0, 50.0),
-        ("50g Milk with Almond", "50g", 16.0, 60.0),
+        ("50g Milk with Almond", "80g", 16.0, 60.0),
         ("50g Milk with Kelewele", "50g", 16.0, 50.0),
         ("50g Milk with Calabash Nutmeg", "50g", 16.0, 50.0),
         ("50g Milk with Cashew/Millet", "50g", 16.0, 50.0),
@@ -1315,6 +1315,7 @@ with tab_analytics:
 
       with c_chart2:
         st.markdown("#### Total Weight in Metric Tonnes: Domestic vs Exports")
+        # Ensure rows with 0.0 values or single entries map cleanly without filtering out
         fig_bar_comp = px.bar(
             comp_df,
             x="Market",
@@ -1324,7 +1325,9 @@ with tab_analytics:
             color_discrete_map={"Domestic": "#8B263E", "Exports": "#1E88E5"},
         )
         fig_bar_comp.update_traces(texttemplate="%{text:.4f} MT", textposition="outside")
+        # Fix axis configuration so both categories always display even if one is zero
         fig_bar_comp.update_layout(
+            xaxis=dict(categoryorder="array", categoryarray=["Domestic", "Exports"]),
             yaxis_title="Metric Tonnes (MT)",
             xaxis_title="",
             margin=dict(t=20, b=20, l=10, r=10),
