@@ -28,7 +28,6 @@ try:
 except Exception:
   DB_URI = "postgresql+psycopg://neondb_owner:npg_p4rhxY6HwWCL@ep-aged-firefly-b5b01bzp-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
-# Safe local database URI construction using IPv4
 LOCAL_DB_URI = URL.create(
     drivername="postgresql+psycopg",
     username="postgres",
@@ -815,7 +814,7 @@ def prepare_export_df(df):
 
 
 def render_table_edit_delete_bar(table_name, key_prefix):
-  with st.expander("✏ Quick Edit / Delete a Record in this Table", expanded=False):
+  with st.expander("✏ Quick Edit / Delete a Record", expanded=False):
     current_df = fetch_table(table_name)
     if current_df.empty:
       st.info("No records in this table to edit or delete.")
@@ -825,7 +824,7 @@ def render_table_edit_delete_bar(table_name, key_prefix):
       current_df["batch_number"] = ""
 
     current_df["display_label"] = current_df.apply(
-        lambda r: f"ID #{r['id']} | {r['date']} | {r['customer_name']} | Batch: {r['batch_number']} | {r['product_name']} (Qty: {r['quantity']})",
+        lambda r: f"ID #{r['id']} | {r['date']} | {r['customer_name']} | {r['product_name']} (Qty: {r['quantity']})",
         axis=1,
     )
 
@@ -837,53 +836,50 @@ def render_table_edit_delete_bar(table_name, key_prefix):
     selected_row = current_df[current_df["display_label"] == selected_label].iloc[0]
     rec_id = int(selected_row["id"])
 
-    with st.form(f"{key_prefix}_edit_form"):
-      col1, col2, col3 = st.columns([2, 2, 2])
-      with col1:
-        e_date = st.date_input("Date", value=pd.to_datetime(selected_row["date"]).date(), key=f"{key_prefix}_d")
-      with col2:
-        e_cust = st.text_input("Customer Name", value=selected_row["customer_name"], key=f"{key_prefix}_c")
-      with col3:
-        curr_batch = selected_row["batch_number"] if pd.notna(selected_row["batch_number"]) else ""
-        e_batch = st.text_input("Batch Number", value=curr_batch, key=f"{key_prefix}_b")
+    action_mode = st.radio("Choose Action", ["Edit Record", "Delete Record"], horizontal=True, key=f"{key_prefix}_mode")
 
-      col4, col5, col6 = st.columns([3, 1, 2])
-      with col4:
-        prod_idx = PRODUCT_CATALOG.index(selected_row["product_name"]) if selected_row["product_name"] in PRODUCT_CATALOG else 0
-        e_prod = st.selectbox("Product", PRODUCT_CATALOG, index=prod_idx, key=f"{key_prefix}_p")
-      with col5:
-        e_weight = st.number_input("Weight (g)", min_value=0.0, step=1.0, value=float(selected_row["weight_g"]), format="%.2f", key=f"{key_prefix}_w")
-      with col6:
-        e_staff = st.text_input("Entered By", value=selected_row["entered_by"], key=f"{key_prefix}_s")
+    if action_mode == "Edit Record":
+      with st.form(f"{key_prefix}_edit_form"):
+        col1, col2, col3 = st.columns([2, 2, 2])
+        with col1:
+          e_date = st.date_input("Date", value=pd.to_datetime(selected_row["date"]).date(), key=f"{key_prefix}_d")
+        with col2:
+          e_cust = st.text_input("Customer Name", value=selected_row["customer_name"], key=f"{key_prefix}_c")
+        with col3:
+          curr_batch = selected_row["batch_number"] if pd.notna(selected_row["batch_number"]) else ""
+          e_batch = st.text_input("Batch Number", value=curr_batch, key=f"{key_prefix}_b")
 
-      col7, col8 = st.columns(2)
-      with col7:
-        e_qty = st.number_input("Quantity", min_value=1, step=1, value=int(selected_row["quantity"]), key=f"{key_prefix}_q")
-      with col8:
-        e_cost = st.number_input("Unit Cost (GH₵)", min_value=0.0, step=0.5, value=float(selected_row["unit_cost"]), format="%.2f", key=f"{key_prefix}_u")
+        col4, col5, col6 = st.columns([3, 1, 2])
+        with col4:
+          prod_idx = PRODUCT_CATALOG.index(selected_row["product_name"]) if selected_row["product_name"] in PRODUCT_CATALOG else 0
+          e_prod = st.selectbox("Product", PRODUCT_CATALOG, index=prod_idx, key=f"{key_prefix}_p")
+        with col5:
+          e_weight = st.number_input("Weight (g)", min_value=0.0, step=1.0, value=float(selected_row["weight_g"]), format="%.2f", key=f"{key_prefix}_w")
+        with col6:
+          e_staff = st.text_input("Entered By", value=selected_row["entered_by"], key=f"{key_prefix}_s")
 
-      btn_save, btn_del = st.columns([4, 1])
-      with btn_save:
-        save_clicked = st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True)
-      with btn_del:
-        del_clicked = st.form_submit_button("🗑 Delete Record", type="secondary", use_container_width=True)
+        col7, col8 = st.columns(2)
+        with col7:
+          e_qty = st.number_input("Quantity", min_value=1, step=1, value=int(selected_row["quantity"]), key=f"{key_prefix}_q")
+        with col8:
+          e_cost = st.number_input("Unit Cost (GH₵)", min_value=0.0, step=0.5, value=float(selected_row["unit_cost"]), format="%.2f", key=f"{key_prefix}_u")
 
-      if save_clicked:
-        payload = {
-            "date": e_date,
-            "customer_name": e_cust.strip().upper(),
-            "batch_number": e_batch.strip().upper(),
-            "product_name": e_prod,
-            "weight_g": float(e_weight),
-            "quantity": int(e_qty),
-            "unit_cost": float(e_cost),
-            "entered_by": e_staff.strip(),
-        }
-        update_dispatch_record(table_name, rec_id, payload)
-        st.success(f"Record #{rec_id} successfully updated!")
-        st.rerun()
-
-      if del_clicked:
+        if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
+          payload = {
+              "date": e_date,
+              "customer_name": e_cust.strip().upper(),
+              "batch_number": e_batch.strip().upper(),
+              "product_name": e_prod,
+              "weight_g": float(e_weight),
+              "quantity": int(e_qty),
+              "unit_cost": float(e_cost),
+              "entered_by": e_staff.strip(),
+          }
+          update_dispatch_record(table_name, rec_id, payload)
+          st.success(f"Record #{rec_id} successfully updated!")
+          st.rerun()
+    else:
+      if st.button("🗑 Permanently Delete This Record", type="primary", use_container_width=True):
         delete_record(table_name, rec_id)
         st.warning(f"Record #{rec_id} permanently deleted.")
         st.rerun()
@@ -1349,7 +1345,7 @@ with tab_analytics:
             top_prod = channel_df.groupby("product_name")["quantity"].sum().reset_index()
             top_prod = top_prod.sort_values(by="quantity", ascending=False).head(7)
             
-            bar_color = "#1E88E5" if "Local Sales" in title else ("#FFFFFF" | "#FFD700")
+            bar_color = "#1E88E5" if "Local Sales" in title else ("#FFFFFF" if "Exports" in title else "#FFD700")
 
             fig_prod = px.bar(
                 top_prod,
@@ -1421,7 +1417,7 @@ with tab_analytics:
         )
         fig_ch_money.update_traces(texttemplate="GH₵ %{text:,.2f}", textposition="outside", marker_line_color="#000000", marker_line_width=1.5)
         fig_ch_money.update_layout(
-            xaxis=dict(categoryorder="array", categoryarray=["Local Sales", "Exports", "Protocol"]),
+            xaxis=dict(categoryorder="array", categoryarray=["Local Sales", "Exports", "Protocol"],
             xaxis_title="",
             yaxis_title="Amount (GH₵)",
             margin=dict(t=20, b=20, l=10, r=10),
