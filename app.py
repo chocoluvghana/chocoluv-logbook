@@ -28,7 +28,7 @@ try:
 except Exception:
   DB_URI = "postgresql+psycopg://neondb_owner:npg_p4rhxY6HwWCL@ep-aged-firefly-b5b01bzp-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
-# Safe local database URI construction using IPv4 to avoid connection errors
+# Safe local database URI construction using IPv4
 LOCAL_DB_URI = URL.create(
     drivername="postgresql+psycopg",
     username="postgres",
