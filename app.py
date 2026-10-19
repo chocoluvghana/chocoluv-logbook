@@ -28,6 +28,7 @@ try:
 except Exception:
   DB_URI = "postgresql+psycopg://neondb_owner:npg_p4rhxY6HwWCL@ep-aged-firefly-b5b01bzp-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
+# Safe local database URI construction using IPv4
 LOCAL_DB_URI = URL.create(
     drivername="postgresql+psycopg",
     username="postgres",
@@ -104,7 +105,7 @@ def get_db_engines():
     with engine_local.begin() as conn:
       conn.execute(text(init_sql))
   except Exception:
-    engine_local = None  # Fails silently without showing red boxes on UI
+    engine_local = None
 
   return engine_neon, engine_local
 
@@ -1236,7 +1237,7 @@ with tab_analytics:
       all_df["total_amount"] = pd.to_numeric(all_df["total_amount"], errors="coerce").fillna(0.0)
 
       local_mt = df_l["total_weight_mt"].sum() if not df_l.empty else 0.0
-      local_ghc = df_l["total_amount"].sum() if not df.empty else 0.0
+      local_ghc = df_l["total_amount"].sum() if not df_l.empty else 0.0
 
       protocol_mt = df_p["total_weight_mt"].sum() if not df_p.empty else 0.0
       protocol_ghc = df_p["total_amount"].sum() if not df_p.empty else 0.0
@@ -1348,7 +1349,7 @@ with tab_analytics:
             top_prod = channel_df.groupby("product_name")["quantity"].sum().reset_index()
             top_prod = top_prod.sort_values(by="quantity", ascending=False).head(7)
             
-            bar_color = "#1E88E5" if "Local Sales" in title else ("#FFFFFF" if "Exports" in title else "#FFD700")
+            bar_color = "#1E88E5" if "Local Sales" in title else ("#FFFFFF" | "#FFD700")
 
             fig_prod = px.bar(
                 top_prod,
