@@ -1078,6 +1078,7 @@ with tab_local:
   render_sales_table_view("local_sales", "Local Sales")
 
 with tab_export:
+  render_sales_type_view_fallback = None  # placeholder
   render_sales_table_view("export_sales", "Exports")
 
 with tab_protocol:
