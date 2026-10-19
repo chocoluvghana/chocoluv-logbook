@@ -213,7 +213,11 @@ def load_product_catalog():
 PRODUCT_CATALOG, CATALOG_DF = load_product_catalog()
 
 
-def parse_weight_to_grams(w_val):
+def parse_weight_to_grams(w_val, product_name=""):
+  if product_name and "almond" in product_name.lower():
+    if "27g" not in product_name.lower():
+      return 80.0
+
   if pd.isna(w_val):
     return 50.0
   w_str = str(w_val).strip()
@@ -907,9 +911,34 @@ tab_entry, tab_local, tab_export, tab_protocol, tab_qa, tab_analytics = st.tabs(
 
 with tab_entry:
   st.subheader("Sales Details (Packaging / Entry)")
+  
+  # --- Initialize Session State for Auto-Filling ---
+  if "current_weight" not in st.session_state:
+    st.session_state.current_weight = 50.0
+  if "current_cost" not in st.session_state:
+    st.session_state.current_cost = 16.0
+
+  def update_product_defaults():
+    prod = st.session_state.get("product_selectbox", "-- Select Product --")
+    destination_val = st.session_state.get("target_destination", "Local Sales")
+    
+    if prod != "-- Select Product --" and not CATALOG_DF.empty:
+      match_row = CATALOG_DF[CATALOG_DF["Product Name"] == prod]
+      if not match_row.empty:
+        raw_w = match_row["Weight"].values[0]
+        if "almond" in prod.lower() and "27g" not in prod.lower():
+          st.session_state.current_weight = 80.0
+        else:
+          st.session_state.current_weight = parse_weight_to_grams(raw_w, prod)
+        
+        if destination_val == "Exports":
+          st.session_state.current_cost = float(match_row["Export Price (GHS)"].fillna(50.0).values[0])
+        else:
+          st.session_state.current_cost = float(match_row["Local Price (GHS)"].fillna(25.0).values[0])
+
   c1, c2, c3 = st.columns([2, 2, 2])
   with c1:
-    destination = st.selectbox("Target Section", ["Local Sales", "Exports", "Protocol"])
+    destination = st.selectbox("Target Section", ["Local Sales", "Exports", "Protocol"], key="target_destination", on_change=update_product_defaults)
   with c2:
     entry_date = st.date_input("Date", value=date.today())
   with c3:
@@ -919,28 +948,17 @@ with tab_entry:
   with c4:
     customer_name = st.text_input("Customer Name", placeholder="e.g. Tomreik Hotel")
   with c5:
-    product_name = st.selectbox("Product Name", PRODUCT_CATALOG)
+    product_name = st.selectbox("Product Name", PRODUCT_CATALOG, key="product_selectbox", on_change=update_product_defaults)
   with c_batch:
     batch_number = st.text_input("Batch Number", placeholder="e.g. BATCH-2026-001")
 
-  default_weight = 50.0
-  default_cost = 16.0
-  if product_name != "-- Select Product --" and not CATALOG_DF.empty:
-    match_row = CATALOG_DF[CATALOG_DF["Product Name"] == product_name]
-    if not match_row.empty:
-      default_weight = parse_weight_to_grams(match_row["Weight"].values[0])
-      if destination == "Exports":
-        default_cost = float(match_row["Export Price (GHS)"].fillna(50.0).values[0])
-      else:
-        default_cost = float(match_row["Local Price (GHS)"].fillna(25.0).values[0])
-
   c6, c7, c8 = st.columns(3)
   with c6:
-    unit_weight_g = st.number_input("Weight per Unit (g)", value=float(default_weight), format="%.2f")
+    unit_weight_g = st.number_input("Weight per Unit (g)", value=float(st.session_state.current_weight), format="%.2f", key="current_weight")
   with c7:
     quantity = st.number_input("Quantity", min_value=1, value=1)
   with c8:
-    unit_cost = st.number_input("Unit Cost (GH₵)", value=float(default_cost), format="%.2f")
+    unit_cost = st.number_input("Unit Cost (GH₵)", value=float(st.session_state.current_cost), format="%.2f", key="current_cost")
 
   calc_total_g = quantity * unit_weight_g
   calc_total_mt = calc_total_g / 1_000_000.0
@@ -1341,9 +1359,7 @@ with tab_analytics:
             top_prod = channel_df.groupby("product_name")["quantity"].sum().reset_index()
             top_prod = top_prod.sort_values(by="quantity", ascending=False).head(7)
             
-            # Match coloring logic per channel context: Local Sales = Blue, Exports = White, Protocol = Yellow
             bar_color = "#1E88E5" if "Local Sales" in title else ("#FFFFFF" if "Exports" in title else "#FFD700")
-            text_color_val = "#000000" if bar_color in ["#FFFFFF", "#FFD700"] else "#FFFFFF"
 
             fig_prod = px.bar(
                 top_prod,
