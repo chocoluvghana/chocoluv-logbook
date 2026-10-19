@@ -193,6 +193,8 @@ def load_product_catalog():
         ("Raw Nibs", "100g", 100.0, 100.0),
         ("Mango Dip", "100g", 50.0, 100.0),
         ("Fruit balls", "100g", 100.0, 100.0),
+        ("Big Lollipop", "69g", 30.0, 30.0),
+        ("Small Lollipop", "36g", 25.0, 25.0),
         ("Heart Nuggets", "10g", 5.0, 5.0),
     ]
     df_cat = pd.DataFrame(
