@@ -823,8 +823,9 @@ def render_table_edit_delete_bar(table_name, key_prefix):
     if "batch_number" not in current_df.columns:
       current_df["batch_number"] = ""
 
+    # Each entry in the dropdown now uniquely includes Record ID, Date, Client, and Product
     current_df["display_label"] = current_df.apply(
-        lambda r: f"ID #{r['id']} | {r['date']} | {r['customer_name']} | {r['product_name']} (Qty: {r['quantity']})",
+        lambda r: f"Record #{r['id']} | {r['date']} | {r['customer_name']} | Product: {r['product_name']} (Qty: {r['quantity']})",
         axis=1,
     )
 
@@ -1078,7 +1079,6 @@ with tab_local:
   render_sales_table_view("local_sales", "Local Sales")
 
 with tab_export:
-  render_sales_type_view_fallback = None  # placeholder
   render_sales_table_view("export_sales", "Exports")
 
 with tab_protocol:
