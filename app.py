@@ -28,7 +28,6 @@ try:
 except Exception:
   DB_URI = "postgresql+psycopg://neondb_owner:npg_p4rhxY6HwWCL@ep-aged-firefly-b5b01bzp-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
-# Safe local database URI construction using IPv4
 LOCAL_DB_URI = URL.create(
     drivername="postgresql+psycopg",
     username="postgres",
@@ -100,21 +99,12 @@ def get_db_engines():
         LOCAL_DB_URI,
         pool_pre_ping=True,
         pool_recycle=300,
-        connect_args={"connect_timeout": 5},
+        connect_args={"connect_timeout": 2},
     )
     with engine_local.begin() as conn:
       conn.execute(text(init_sql))
-      
-      # Auto-sync existing Neon records to local if local tables are empty
-      for tbl in ["local_sales", "export_sales", "protocol_sales", "staff_users"]:
-        local_count = conn.execute(text(f"SELECT COUNT(*) FROM {tbl}")).scalar()
-        if local_count == 0:
-          neon_df = pd.read_sql(f"SELECT * FROM {tbl}", engine_neon)
-          if not neon_df.empty:
-            neon_df.to_sql(tbl, con=engine_local, if_exists="append", index=False)
-  except Exception as e:
-    st.sidebar.error(f"Local DB Error: {e}")
-    engine_local = None
+  except Exception:
+    engine_local = None  # Fails silently without showing red boxes on UI
 
   return engine_neon, engine_local
 
@@ -228,9 +218,9 @@ def parse_weight_to_grams(w_val, product_name=""):
   return 50.0
 
 
-# --- Database Operations (Dual-Write & Dual-Read) ---
+# --- Database Operations ---
 def fetch_table(table_name):
-  active_engine = engine_local if engine_local else engine
+  active_engine = engine if engine_local is None else engine_local
   try:
     query = f"SELECT * FROM {table_name} ORDER BY date DESC, id DESC"
     df = pd.read_sql(query, active_engine)
@@ -267,8 +257,8 @@ def insert_dispatch(table_name, record):
     try:
       with engine_local.begin() as conn_loc:
         conn_loc.execute(insert_sql, record)
-    except Exception as e:
-      st.error(f"Failed to write to local DB: {e}")
+    except Exception:
+      pass
 
 
 def update_dispatch_record(table_name, record_id, record):
@@ -345,7 +335,7 @@ def hash_text(secret: str) -> str:
 
 
 def get_staff_account(username: str):
-  active_engine = engine_local if engine_local else engine
+  active_engine = engine if engine_local is None else engine_local
   sql = text(
       "SELECT username, password_hash FROM staff_users WHERE"
       " LOWER(username)=LOWER(:u) LIMIT 1"
@@ -1246,7 +1236,7 @@ with tab_analytics:
       all_df["total_amount"] = pd.to_numeric(all_df["total_amount"], errors="coerce").fillna(0.0)
 
       local_mt = df_l["total_weight_mt"].sum() if not df_l.empty else 0.0
-      local_ghc = df_l["total_amount"].sum() if not df_l.empty else 0.0
+      local_ghc = df_l["total_amount"].sum() if not df.empty else 0.0
 
       protocol_mt = df_p["total_weight_mt"].sum() if not df_p.empty else 0.0
       protocol_ghc = df_p["total_amount"].sum() if not df_p.empty else 0.0
