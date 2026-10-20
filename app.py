@@ -1184,7 +1184,7 @@ with tab_qa:
         st.success("All box-by-box rate changes saved to database!")
         st.rerun()
 
-    render_table_edit_delete_bar(qa_table_name, key_prefix=f"qa_direct_{qa_table_name}")
+    render_table_edit_delete_bar(table_name=qa_table_name, key_prefix=f"qa_direct_{qa_table_name}")
 
     st.markdown("---")
     st.markdown("### 📋 Sales Data")
@@ -1217,9 +1217,10 @@ with tab_qa:
       )
     with d2:
       try:
+        excel_bytes_data = to_excel_bytes(raw_qa_df)
         st.download_button(
             label="📊 Export QA Sales Data Excel (.xlsx)",
-            data=to_excel_bytes(raw_qa_df),
+            data=excel_bytes_data,
             file_name=f"QA_Sales_Data_{qa_table_name}_{date.today()}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
@@ -1430,7 +1431,7 @@ with tab_analytics:
 
       with ch_col2:
         st.markdown("#### Total Money (GH₵) by Channel")
-        st.json("📌 Source: Sum of money recorded in Local Sales Table, Protocol Table, and Exports Table separately")
+        st.caption("📌 Source: Sum of money recorded in Local Sales Table, Protocol Table, and Exports Table separately")
         fig_ch_money = px.bar(
             channel_summary_df,
             x="Channel",
