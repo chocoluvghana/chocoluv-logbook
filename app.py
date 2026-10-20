@@ -28,12 +28,10 @@ try:
 except Exception:
   DB_URI = "postgresql+psycopg://neondb_owner:npg_p4rhxY6HwWCL@ep-aged-firefly-b5b01bzp-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
-local_pass = st.secrets.get("LOCAL_DB_PASSWORD", "Chocoluv@2026")
-
 LOCAL_DB_URI = URL.create(
     drivername="postgresql+psycopg",
     username="postgres",
-    password=local_pass,
+    password="Chocoluv@2026",
     host="127.0.0.1",
     port=5432,
     database="chocoluv_db",
@@ -128,6 +126,9 @@ def load_product_catalog():
     return products, df_cat
   except Exception:
     data = [
+        ("Big Lollipop", "69g", 30.0, 30.0),
+        ("Small Lollipop", "36g", 25.0, 25.0),
+        ("100g White", "100g", 70.0, 70.0),
         ("Best Wishes (41g)", "41g", 25.0, 25.0),
         ("Bunny / Barney (36g)", "36g", 25.0, 25.0),
         ("SpongeBob (36g)", "36g", 25.0, 25.0),
@@ -193,8 +194,6 @@ def load_product_catalog():
         ("Raw Nibs", "100g", 100.0, 100.0),
         ("Mango Dip", "100g", 50.0, 100.0),
         ("Fruit balls", "100g", 100.0, 100.0),
-        ("Big Lollipop", "69g", 30.0, 30.0),
-        ("Small Lollipop", "36g", 25.0, 25.0),
         ("Heart Nuggets", "10g", 5.0, 5.0),
     ]
     df_cat = pd.DataFrame(
@@ -247,6 +246,8 @@ def fetch_table(table_name):
       df["exchange_rate"] = 1.0000
     if "batch_number" not in df.columns:
       df["batch_number"] = "-"
+    if "entered_by" not in df.columns:
+      df["entered_by"] = "-"
   return df
 
 
@@ -596,8 +597,11 @@ def to_excel_bytes(df):
     work_df["exchange_rate"] = 1.0000
   if "batch_number" not in work_df.columns:
     work_df["batch_number"] = "-"
+  if "entered_by" not in work_df.columns:
+    work_df["entered_by"] = "-"
 
   work_df["batch_number"] = work_df["batch_number"].fillna("-")
+  work_df["entered_by"] = work_df["entered_by"].fillna("-")
   work_df["item_total_weight_g"] = work_df["quantity"] * work_df["weight_g"]
   work_df["item_total_amount_ghc"] = work_df["quantity"] * work_df["unit_cost"]
 
@@ -619,7 +623,7 @@ def to_excel_bytes(df):
       "ID", "DATE", "CLIENT", "BATCH #", "PRODUCT", "WEIGHT (g)", "QTY",
       "UNIT COST GH₵", "TOTAL AMOUNT GH₵", "TOTAL WEIGHT (g)",
       "TOTAL WEIGHT IN M/T", "TOTAL AMOUNT OF ORDER (GH₵)",
-      "EXCHANGE RATE", "TOTAL AMOUNT IN USD ($)"
+      "EXCHANGE RATE", "TOTAL AMOUNT IN USD ($)", "ENTERED BY"
   ]
 
   ws.row_dimensions[1].height = 28
@@ -643,6 +647,7 @@ def to_excel_bytes(df):
     order_total_ghc = group["item_total_amount_ghc"].sum()
     order_rate = group["exchange_rate"].iloc[0] if "exchange_rate" in group.columns else 11.20
     order_total_usd = round(order_total_ghc / order_rate, 2) if order_rate > 0 else 0.00
+    order_staff = str(group["entered_by"].iloc[0])
 
     for idx, (_, row) in enumerate(group.iterrows()):
       r = current_row
@@ -656,7 +661,7 @@ def to_excel_bytes(df):
       ws.cell(row=r, column=8, value=float(row["unit_cost"])).number_format = "#,##0.00"
       ws.cell(row=r, column=9, value=float(row["item_total_amount_ghc"])).number_format = "#,##0.00"
 
-      for c_idx in range(1, 15):
+      for c_idx in range(1, 16):
         ws.cell(row=r, column=c_idx).border = thin_border
       current_row += 1
 
@@ -667,9 +672,10 @@ def to_excel_bytes(df):
     ws.cell(row=start_row, column=12, value=float(order_total_ghc)).number_format = '"GH₵ "#,##0.00'
     ws.cell(row=start_row, column=13, value=float(order_rate)).number_format = "0.0000"
     ws.cell(row=start_row, column=14, value=float(order_total_usd)).number_format = '"$"#,##0.00'
+    ws.cell(row=start_row, column=15, value=order_staff).alignment = Alignment(horizontal="center", vertical="center")
 
     if num_rows > 1:
-      for col in [2, 3, 10, 11, 12, 13, 14]:
+      for col in [2, 3, 10, 11, 12, 13, 14, 15]:
         ws.merge_cells(start_row=start_row, start_column=col, end_row=end_row, end_column=col)
 
   output = io.BytesIO()
@@ -688,8 +694,11 @@ def display_merged_excel_table(df):
     work_df["exchange_rate"] = 1.0000
   if "batch_number" not in work_df.columns:
     work_df["batch_number"] = "-"
+  if "entered_by" not in work_df.columns:
+    work_df["entered_by"] = "-"
 
   work_df["batch_number"] = work_df["batch_number"].fillna("-")
+  work_df["entered_by"] = work_df["entered_by"].fillna("-")
   work_df["item_total_weight_g"] = work_df["quantity"] * work_df["weight_g"]
   work_df["item_total_amount_ghc"] = work_df["quantity"] * work_df["unit_cost"]
 
@@ -712,6 +721,7 @@ def display_merged_excel_table(df):
         .qty-cell { font-weight: 700; }
         .order-sum { font-weight: 800; background: #fdfaf6; }
         .order-usd { font-weight: 800; color: #1b5e20; background: #f2fbf2; }
+        .staff-cell { font-weight: 700; background: #fafafa; }
         tr:hover { background-color: #faf4ee; }
     </style>
     </head>
@@ -734,6 +744,7 @@ def display_merged_excel_table(df):
                 <th>TOTAL AMOUNT OF ORDER (GH₵)</th>
                 <th>EXCHANGE RATE</th>
                 <th>TOTAL AMOUNT IN USD ($)</th>
+                <th>ENTERED BY</th>
             </tr>
         </thead>
         <tbody>
@@ -750,6 +761,7 @@ def display_merged_excel_table(df):
     order_total_ghc = group["item_total_amount_ghc"].sum()
     order_rate = group["exchange_rate"].iloc[0] if "exchange_rate" in group.columns else 11.20
     order_total_usd = round(order_total_ghc / order_rate, 2) if order_rate > 0 else 0.00
+    order_staff = str(group["entered_by"].iloc[0])
 
     for idx, (_, row) in enumerate(group.iterrows()):
       html_parts.append("<tr>")
@@ -772,6 +784,7 @@ def display_merged_excel_table(df):
         html_parts.append(f"<td class='order-sum' rowspan='{num_rows}' style='color:#b25e24;'>GH₵ {order_total_ghc:,.2f}</td>")
         html_parts.append(f"<td rowspan='{num_rows}' style='font-weight:700;'>{order_rate:.4f}</td>")
         html_parts.append(f"<td class='order-usd' rowspan='{num_rows}'>${order_total_usd:,.2f}</td>")
+        html_parts.append(f"<td class='staff-cell' rowspan='{num_rows}'>{order_staff}</td>")
 
       html_parts.append("</tr>")
 
@@ -788,8 +801,11 @@ def prepare_export_df(df):
     export_df["exchange_rate"] = 1.0000
   if "batch_number" not in export_df.columns:
     export_df["batch_number"] = "-"
+  if "entered_by" not in export_df.columns:
+    export_df["entered_by"] = "-"
 
   export_df["batch_number"] = export_df["batch_number"].fillna("-")
+  export_df["entered_by"] = export_df["entered_by"].fillna("-")
   export_df["item_total_weight_g"] = export_df["quantity"] * export_df["weight_g"]
   export_df["item_total_amount_ghc"] = export_df["quantity"] * export_df["unit_cost"]
 
@@ -818,75 +834,81 @@ def prepare_export_df(df):
 
 
 def render_table_edit_delete_bar(table_name, key_prefix):
-  with st.expander("✏ Quick Edit / Delete a Record", expanded=False):
+  with st.expander("✏ Direct Table Editor (Like Postgres)", expanded=False):
     current_df = fetch_table(table_name)
     if current_df.empty:
       st.info("No records in this table to edit or delete.")
       return
 
-    if "batch_number" not in current_df.columns:
-      current_df["batch_number"] = ""
+    st.caption("Double-click any cell below to edit directly. To delete a row, enter its ID below.")
 
-    current_df["display_label"] = current_df.apply(
-        lambda r: f"Record #{r['id']} | {r['date']} | {r['customer_name']} | Product: {r['product_name']} (Qty: {r['quantity']})",
-        axis=1,
+    edit_cols = [
+        "id", "date", "customer_name", "batch_number", "product_name",
+        "weight_g", "quantity", "unit_cost", "entered_by"
+    ]
+    
+    editable_df = current_df[[c for c in edit_cols if c in current_df.columns]].copy()
+
+    edited_df = st.data_editor(
+        editable_df,
+        disabled=["id"],
+        num_rows="dynamic",
+        use_container_width=True,
+        key=f"{key_prefix}_grid_editor"
     )
 
-    selected_label = st.selectbox(
-        "Select Record to Edit or Delete:",
-        current_df["display_label"].tolist(),
-        key=f"{key_prefix}_sel",
-    )
-    selected_row = current_df[current_df["display_label"] == selected_label].iloc[0]
-    rec_id = int(selected_row["id"])
+    col_save, col_del = st.columns([2, 2])
+    with col_save:
+      if st.button("💾 Save Table Edits", type="primary", use_container_width=True, key=f"{key_prefix}_save"):
+        try:
+          active_engine = engine if engine_local is None else engine_local
+          for _, row in edited_df.iterrows():
+            update_sql = text(f"""
+                UPDATE {table_name}
+                SET date = :date,
+                    customer_name = :customer_name,
+                    batch_number = :batch_number,
+                    product_name = :product_name,
+                    weight_g = :weight_g,
+                    quantity = :quantity,
+                    unit_cost = :unit_cost,
+                    entered_by = :entered_by
+                WHERE id = :id
+            """)
+            payload = {
+                "id": int(row["id"]),
+                "date": pd.to_datetime(row["date"]).date(),
+                "customer_name": str(row["customer_name"]).strip().upper(),
+                "batch_number": str(row["batch_number"]).strip().upper(),
+                "product_name": str(row["product_name"]),
+                "weight_g": float(row["weight_g"]),
+                "quantity": int(row["quantity"]),
+                "unit_cost": float(row["unit_cost"]),
+                "entered_by": str(row["entered_by"]).strip()
+            }
+            with active_engine.begin() as conn:
+              conn.execute(update_sql, payload)
+            if engine_local:
+              try:
+                with engine_local.begin() as conn_loc:
+                  conn_loc.execute(update_sql, payload)
+              except Exception:
+                pass
 
-    action_mode = st.radio("Choose Action", ["Edit Record", "Delete Record"], horizontal=True, key=f"{key_prefix}_mode")
-
-    if action_mode == "Edit Record":
-      with st.form(f"{key_prefix}_edit_form"):
-        col1, col2, col3 = st.columns([2, 2, 2])
-        with col1:
-          e_date = st.date_input("Date", value=pd.to_datetime(selected_row["date"]).date(), key=f"{key_prefix}_d")
-        with col2:
-          e_cust = st.text_input("Customer Name", value=selected_row["customer_name"], key=f"{key_prefix}_c")
-        with col3:
-          curr_batch = selected_row["batch_number"] if pd.notna(selected_row["batch_number"]) else ""
-          e_batch = st.text_input("Batch Number", value=curr_batch, key=f"{key_prefix}_b")
-
-        col4, col5, col6 = st.columns([3, 1, 2])
-        with col4:
-          prod_idx = PRODUCT_CATALOG.index(selected_row["product_name"]) if selected_row["product_name"] in PRODUCT_CATALOG else 0
-          e_prod = st.selectbox("Product", PRODUCT_CATALOG, index=prod_idx, key=f"{key_prefix}_p")
-        with col5:
-          e_weight = st.number_input("Weight (g)", min_value=0.0, step=1.0, value=float(selected_row["weight_g"]), format="%.2f", key=f"{key_prefix}_w")
-        with col6:
-          e_staff = st.text_input("Entered By", value=selected_row["entered_by"], key=f"{key_prefix}_s")
-
-        col7, col8 = st.columns(2)
-        with col7:
-          e_qty = st.number_input("Quantity", min_value=1, step=1, value=int(selected_row["quantity"]), key=f"{key_prefix}_q")
-        with col8:
-          e_cost = st.number_input("Unit Cost (GH₵)", min_value=0.0, step=0.5, value=float(selected_row["unit_cost"]), format="%.2f", key=f"{key_prefix}_u")
-
-        if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
-          payload = {
-              "date": e_date,
-              "customer_name": e_cust.strip().upper(),
-              "batch_number": e_batch.strip().upper(),
-              "product_name": e_prod,
-              "weight_g": float(e_weight),
-              "quantity": int(e_qty),
-              "unit_cost": float(e_cost),
-              "entered_by": e_staff.strip(),
-          }
-          update_dispatch_record(table_name, rec_id, payload)
-          st.success(f"Record #{rec_id} successfully updated!")
+          st.success("All changes successfully saved to database!")
           st.rerun()
-    else:
-      if st.button("🗑 Permanently Delete This Record", type="primary", use_container_width=True):
-        delete_record(table_name, rec_id)
-        st.warning(f"Record #{rec_id} permanently deleted.")
-        st.rerun()
+        except Exception as ex:
+          st.error(f"Error updating records: {ex}")
+
+    with col_del:
+      del_id = st.number_input("Enter Record ID to Delete", min_value=1, step=1, key=f"{key_prefix}_del_id")
+      if st.button("🗑️ Delete This Record ID", type="secondary", use_container_width=True, key=f"{key_prefix}_del_btn"):
+        try:
+          delete_record(table_name, int(del_id))
+          st.warning(f"Record #{del_id} permanently deleted.")
+          st.rerun()
+        except Exception as ex:
+          st.error(f"Error deleting record: {ex}")
 
 
 tab_entry, tab_local, tab_export, tab_protocol, tab_qa, tab_analytics = st.tabs(
@@ -998,6 +1020,8 @@ def render_sales_table_view(table_key, title):
     df["date"] = pd.to_datetime(df["date"]).dt.date
     if "batch_number" not in df.columns:
       df["batch_number"] = "-"
+    if "entered_by" not in df.columns:
+      df["entered_by"] = "-"
 
     render_table_edit_delete_bar(table_key, key_prefix=f"{table_key}_panel")
 
@@ -1112,6 +1136,8 @@ with tab_qa:
     raw_qa_df["date"] = pd.to_datetime(raw_qa_df["date"]).dt.date
     if "batch_number" not in raw_qa_df.columns:
       raw_qa_df["batch_number"] = "-"
+    if "entered_by" not in raw_qa_df.columns:
+      raw_qa_df["entered_by"] = "-"
 
     if qa_mode == "Apply by Entire Month (Bulk)":
       st.markdown("##### 📅 Set Monthly Exchange Rate")
@@ -1457,5 +1483,5 @@ with tab_analytics:
 
     else:
       st.info("No orders found across the tables to display graphs.")
-  except Exception as e:
-    st.error(f"Failed to generate graphs: {e}")
+  except Exception as l_err:
+    st.error(f"Failed to generate graphs: {l_err}")
