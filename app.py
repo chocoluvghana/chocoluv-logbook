@@ -834,75 +834,81 @@ def prepare_export_df(df):
 
 
 def render_table_edit_delete_bar(table_name, key_prefix):
-  with st.expander("✏ Quick Edit / Delete a Record", expanded=False):
+  with st.expander("✏ Direct Table Editor (Like Postgres)", expanded=False):
     current_df = fetch_table(table_name)
     if current_df.empty:
       st.info("No records in this table to edit or delete.")
       return
 
-    if "batch_number" not in current_df.columns:
-      current_df["batch_number"] = ""
+    st.caption("Double-click any cell below to edit directly. To delete a row, enter its ID below.")
 
-    current_df["display_label"] = current_df.apply(
-        lambda r: f"Record #{r['id']} | {r['date']} | {r['customer_name']} | Product: {r['product_name']} (Qty: {r['quantity']})",
-        axis=1,
+    edit_cols = [
+        "id", "date", "customer_name", "batch_number", "product_name",
+        "weight_g", "quantity", "unit_cost", "entered_by"
+    ]
+    
+    editable_df = current_df[[c for c in edit_cols if c in current_df.columns]].copy()
+
+    edited_df = st.data_editor(
+        editable_df,
+        disabled=["id"],
+        num_rows="dynamic",
+        use_container_width=True,
+        key=f"{key_prefix}_grid_editor"
     )
 
-    selected_label = st.selectbox(
-        "Select Record to Edit or Delete:",
-        current_df["display_label"].tolist(),
-        key=f"{key_prefix}_sel",
-    )
-    selected_row = current_df[current_df["display_label"] == selected_label].iloc[0]
-    rec_id = int(selected_row["id"])
+    col_save, col_del = st.columns([2, 2])
+    with col_save:
+      if st.button("💾 Save Table Edits", type="primary", use_container_width=True, key=f"{key_prefix}_save"):
+        try:
+          active_engine = engine if engine_local is None else engine_local
+          for _, row in edited_df.iterrows():
+            update_sql = text(f"""
+                UPDATE {table_name}
+                SET date = :date,
+                    customer_name = :customer_name,
+                    batch_number = :batch_number,
+                    product_name = :product_name,
+                    weight_g = :weight_g,
+                    quantity = :quantity,
+                    unit_cost = :unit_cost,
+                    entered_by = :entered_by
+                WHERE id = :id
+            """)
+            payload = {
+                "id": int(row["id"]),
+                "date": pd.to_datetime(row["date"]).date(),
+                "customer_name": str(row["customer_name"]).strip().upper(),
+                "batch_number": str(row["batch_number"]).strip().upper(),
+                "product_name": str(row["product_name"]),
+                "weight_g": float(row["weight_g"]),
+                "quantity": int(row["quantity"]),
+                "unit_cost": float(row["unit_cost"]),
+                "entered_by": str(row["entered_by"]).strip()
+            }
+            with active_engine.begin() as conn:
+              conn.execute(update_sql, payload)
+            if engine_local:
+              try:
+                with engine_local.begin() as conn_loc:
+                  conn_loc.execute(update_sql, payload)
+              except Exception:
+                pass
 
-    action_mode = st.radio("Choose Action", ["Edit Record", "Delete Record"], horizontal=True, key=f"{key_prefix}_mode")
-
-    if action_mode == "Edit Record":
-      with st.form(f"{key_prefix}_edit_form"):
-        col1, col2, col3 = st.columns([2, 2, 2])
-        with col1:
-          e_date = st.date_input("Date", value=pd.to_datetime(selected_row["date"]).date(), key=f"{key_prefix}_d")
-        with col2:
-          e_cust = st.text_input("Customer Name", value=selected_row["customer_name"], key=f"{key_prefix}_c")
-        with col3:
-          curr_batch = selected_row["batch_number"] if pd.notna(selected_row["batch_number"]) else ""
-          e_batch = st.text_input("Batch Number", value=curr_batch, key=f"{key_prefix}_b")
-
-        col4, col5, col6 = st.columns([3, 1, 2])
-        with col4:
-          prod_idx = PRODUCT_CATALOG.index(selected_row["product_name"]) if selected_row["product_name"] in PRODUCT_CATALOG else 0
-          e_prod = st.selectbox("Product", PRODUCT_CATALOG, index=prod_idx, key=f"{key_prefix}_p")
-        with col5:
-          e_weight = st.number_input("Weight (g)", min_value=0.0, step=1.0, value=float(selected_row["weight_g"]), format="%.2f", key=f"{key_prefix}_w")
-        with col6:
-          e_staff = st.text_input("Entered By", value=selected_row["entered_by"], key=f"{key_prefix}_s")
-
-        col7, col8 = st.columns(2)
-        with col7:
-          e_qty = st.number_input("Quantity", min_value=1, step=1, value=int(selected_row["quantity"]), key=f"{key_prefix}_q")
-        with col8:
-          e_cost = st.number_input("Unit Cost (GH₵)", min_value=0.0, step=0.5, value=float(selected_row["unit_cost"]), format="%.2f", key=f"{key_prefix}_u")
-
-        if st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True):
-          payload = {
-              "date": e_date,
-              "customer_name": e_cust.strip().upper(),
-              "batch_number": e_batch.strip().upper(),
-              "product_name": e_prod,
-              "weight_g": float(e_weight),
-              "quantity": int(e_qty),
-              "unit_cost": float(e_cost),
-              "entered_by": e_staff.strip(),
-          }
-          update_dispatch_record(table_name, rec_id, payload)
-          st.success(f"Record #{rec_id} successfully updated!")
+          st.success("All changes successfully saved to database!")
           st.rerun()
-    else:
-      if st.button("🗑 Permanently Delete This Record", type="primary", use_container_width=True):
-        delete_record(table_name, rec_id)
-        st.warning(f"Record #{rec_id} permanently deleted.")
-        st.rerun()
+        except Exception as ex:
+          st.error(f"Error updating records: {ex}")
+
+    with col_del:
+      del_id = st.number_input("Enter Record ID to Delete", min_value=1, step=1, key=f"{key_prefix}_del_id")
+      if st.button("🗑️ Delete This Record ID", type="secondary", use_container_width=True, key=f"{key_prefix}_del_btn"):
+        try:
+          delete_record(table_name, int(del_id))
+          st.warning(f"Record #{del_id} permanently deleted.")
+          st.rerun()
+        except Exception as ex:
+          st.error(f"Error deleting record: {ex}")
 
 
 tab_entry, tab_local, tab_export, tab_protocol, tab_qa, tab_analytics = st.tabs(
@@ -1184,7 +1190,7 @@ with tab_qa:
         st.success("All box-by-box rate changes saved to database!")
         st.rerun()
 
-    render_table_edit_delete_bar(table_name=qa_table_name, key_prefix=f"qa_direct_{qa_table_name}")
+    render_table_edit_delete_bar(qa_table_name, key_prefix=f"qa_direct_{qa_table_name}")
 
     st.markdown("---")
     st.markdown("### 📋 Sales Data")
@@ -1217,10 +1223,9 @@ with tab_qa:
       )
     with d2:
       try:
-        excel_bytes_data = to_excel_bytes(raw_qa_df)
         st.download_button(
             label="📊 Export QA Sales Data Excel (.xlsx)",
-            data=excel_bytes_data,
+            data=to_excel_bytes(raw_qa_df),
             file_name=f"QA_Sales_Data_{qa_table_name}_{date.today()}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
