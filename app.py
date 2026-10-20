@@ -1485,3 +1485,4 @@ with tab_analytics:
       st.info("No orders found across the tables to display graphs.")
   except Exception as l_err:
     st.error(f"Failed to generate graphs: {l_err}")
+    # refresh app
